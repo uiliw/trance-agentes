@@ -189,7 +189,8 @@ def _receber_link(colar):
     endereco = f"{CMS}/agente/conectar?porta={porta}&estado={estado}"
     print(f"Abra no navegador e clique em \"Conectar terminal\":\n  {endereco}\n(esperando até 10 min; Ctrl+C cancela)", file=sys.stderr)
     try:
-        if "microsoft" in os.uname().release.lower():  # WSL: abre no navegador do Windows
+        import platform
+        if "microsoft" in platform.uname().release.lower():  # WSL: abre no navegador do Windows
             import subprocess
             subprocess.run(["cmd.exe", "/c", "start", "", endereco.replace("&", "^&")], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False)
         else:

@@ -1,6 +1,6 @@
 # Agentes do Trance.com.br (plugin do Claude Code)
 
-Para quem é da **equipe do CMS** (app.trance.com.br). Versão 1.1.0.
+Para quem é da **equipe do CMS** (app.trance.com.br). Versão 1.1.1.
 
 ## Instalar (uma vez)
 

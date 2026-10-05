@@ -10,6 +10,7 @@ Nada vai ao ar sem um humano aprovar lá. Plano completo: `cms/PLANO-AGENTE-EVEN
 
 Ferramenta única de escrita: `python3 <pasta-da-skill>/evento.py` (saída JSON), onde `<pasta-da-skill>` é o
 "Base directory for this skill" mostrado ao abrir a skill. Mapa de campos e exemplo: [campos.md](campos.md).
+No Windows, se `python3` não existir, use `python` (ou `py`). Falta `requests`/`Pillow`: `pip install requests pillow`.
 
 ## 0. Antes de tudo
 
