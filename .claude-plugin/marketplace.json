@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "trance-agentes",
+  "description": "Agentes de IA do Trance.com.br para a equipe do CMS",
+  "owner": {
+    "name": "Trance.com.br / Omline"
+  },
+  "plugins": [
+    {
+      "name": "trance-eventos",
+      "source": "./plugins/trance-eventos",
+      "description": "Cadastra eventos de psytrance a partir de link, Instagram, flyer ou busca, como sugestão na Moderação do CMS"
+    }
+  ]
+}

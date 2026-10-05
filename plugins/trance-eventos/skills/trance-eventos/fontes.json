@@ -1,0 +1,37 @@
+{
+  "_sobre": "Fontes do modo /trance-eventos buscar. As 'comandos' rodam pelo evento.py; 'consultas' vão para o WebSearch ({ano} = ano da janela); 'paginas' são lidas por WebFetch. Edite à vontade.",
+  "comandos": [
+    {"nome": "Recorrentes da base", "uso": "python3 <pasta-da-skill>/evento.py candidatos recorrentes", "por_que": "festivais que já cadastramos e ainda não têm a próxima edição"},
+    {"nome": "Goabase (mundo, psytrance)", "uso": "python3 <pasta-da-skill>/evento.py candidatos goabase --pais <ISO,...> --dias <N>", "por_que": "agenda pública com line-up; confira sempre no site oficial (dados às vezes desatualizados)"}
+  ],
+  "consultas": {
+    "brasil": [
+      "festival psytrance {ano} line-up ingressos",
+      "festival trance psicodélico {ano} brasil",
+      "festa psytrance {ano} sympla",
+      "réveillon psytrance {ano} festival",
+      "carnaval psytrance {ano} festival"
+    ],
+    "america-latina": [
+      "festival psytrance {ano} argentina OR chile OR méxico OR colômbia",
+      "psytrance festival {ano} latin america lineup"
+    ],
+    "europa": [
+      "psytrance festival {ano} europe lineup tickets",
+      "goa trance festival {ano} lineup",
+      "psychedelic trance open air {ano} germany OR portugal OR hungary"
+    ],
+    "asia-oceania": [
+      "psytrance festival {ano} india OR thailand OR japan lineup",
+      "psytrance festival {ano} australia OR new zealand"
+    ],
+    "africa": [
+      "psytrance festival {ano} south africa OR morocco lineup"
+    ]
+  },
+  "paginas": [
+    {"nome": "Sympla (busca psytrance)", "url": "https://www.sympla.com.br/eventos?s=psytrance"},
+    {"nome": "Sympla (busca trance)", "url": "https://www.sympla.com.br/eventos?s=trance"},
+    {"nome": "Goabase (Brasil)", "url": "https://www.goabase.net/party/?country=Brazil"}
+  ]
+}
