@@ -67,8 +67,10 @@ A imagem fica no bucket privado e só vai para a Duda quando aprovarem (recusa n
 
 ## 5. Local no mapa
 
-Sem coordenadas na fonte: `python3 <pasta-da-skill>/evento.py geocode "<local>, <cidade>, <país>"`. Use só se o resultado
-bater com o local/cidade; senão deixe `lat`/`lng` vazios e anote em `notas_agente`.
+Rode `python3 <pasta-da-skill>/evento.py geocode "<local>, <cidade>, <país>"` (Google pelo CMS): devolve `local`, `cidade`, `uf`,
+`pais_iso`, `lat`, `lng` prontos para a ficha (e `outras_sugestoes` quando o nome é ambíguo). Use só se o resultado bater com o
+local/cidade da fonte; senão deixe `lat`/`lng` vazios e anote em `notas_agente`. Grave sempre `uf` (Brasil) e `pais_iso`: definem a
+página de região (/regiao/<estado>). Se a saída vier com `"estado"`/`"pais"` por extenso (Nominatim, Google desligado), converta para UF e ISO-2.
 Resultado vazio: tente de novo com menos palavras (só o nome do lugar + cidade, ou só a cidade) antes de desistir.
 
 ## 6. Ficha e confirmação
@@ -132,3 +134,8 @@ Padrão: `brasil 180d`. Fontes em `<pasta-da-skill>/fontes.json`.
 - Sem dados pessoais (telefone, e-mail pessoal, endereço de casa). Contato público da produtora pode ir no release se for o único canal.
 - Datas no fuso local do evento. Horário desconhecido: só a data (`AAAA-MM-DD`).
 - Um evento por gravação. Festival com várias datas em cidades diferentes = um evento por cidade.
+
+## Line-up ligado aos perfis (2026-10)
+Ao gravar, `evento.py` casa cada linha do line-up com um perfil publicado (nome igual, sem acento, sem selo/país/"(Live)") e grava
+`eventos.artistas` (o evento aparece no perfil do artista). Os nomes sem perfil vão para `notas_agente`; a moderação confere e ajusta
+no campo "Artistas no line-up" do CMS. Escreva o line-up com um artista por item, nome artístico como no portal.

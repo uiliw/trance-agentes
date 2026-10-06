@@ -10,7 +10,7 @@ o RLS (cms_pode_editar) decide o que pode, e o histórico do CMS registra quem g
   evento.py duplicata "<nome>" <AAAA-MM-DD> [--cidade X]
   evento.py lineup "Artista 1" "Artista 2" ...   (ou --arquivo nomes.txt, um por linha)
   evento.py imagem <url|caminho>           # -> conta:<uid>/<arquivo>.webp (vai para a Duda só na aprovação)
-  evento.py geocode "<local, cidade, país>"
+  evento.py geocode "<local, cidade, país>"  # Google pelo CMS (local, cidade, uf, pais_iso, lat/lng); sem ele, Nominatim
   evento.py instagram <link|@usuario> [--perfil @usuario]   # perfil + post (ou 12 recentes) pela Graph API, via CMS
   evento.py candidatos goabase [--pais BR,PT] [--dias 180] [--festivais]
   evento.py candidatos recorrentes [--meses 14]            # festivais da base sem a próxima edição
@@ -55,7 +55,7 @@ UFS = {"AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "B
 TEXTO = ["nome", "local", "cidade", "pais"]
 URLS = ["site", "instagram", "facebook", "youtube", "video", "ingresso"]
 PERMITIDOS = {"nome", "slug", "categoria", "inicio", "fim", "resumo", "release", "programacao", "imagem", "logo", "local", "cidade",
-              "uf", "pais", "lat", "lng", *URLS, "fontes", "notas_agente"}
+              "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente"}
 DATA = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REF = re.compile(r"^conta:[0-9a-f-]{36}/[0-9a-f-]{36}\.(webp|gif|jpg|png)$")
 
@@ -370,6 +370,21 @@ def imagem(origem):
 
 
 def geocode(consulta):
+    """Google (Places, pela rota do CMS; chave só no servidor): local, cidade, UF, país ISO-2 e lat/lng prontos para o evento.
+    Sem Google no servidor (503) ou sem sessão: cai no Nominatim (OSM), que não devolve UF/ISO."""
+    try:
+        r = requests.get(f"{CMS}/api/agente/endereco", params={"q": consulta},
+                         headers={"Authorization": "Bearer " + sessao()["access_token"]}, timeout=30)
+        if r.status_code == 200:
+            j = r.json()
+            e = j.get("endereco")
+            if not e:
+                return []
+            outras = [x["nome"] + (", " + x["resto"] if x.get("resto") else "") for x in j.get("sugestoes", [])]
+            return [{"fonte": "google", "local": e["local"], "cidade": e["cidade"], "uf": e["uf"], "pais_iso": e["pais"],
+                     "lat": e["lat"], "lng": e["lng"], "outras_sugestoes": outras}]
+    except (Erro, requests.RequestException, ValueError):
+        pass
     r = requests.get("https://nominatim.openstreetmap.org/search", params={"q": consulta, "format": "jsonv2", "limit": 3, "addressdetails": 1},
                      headers={"User-Agent": UA, "Accept-Language": "pt-BR"}, timeout=30)
     r.raise_for_status()
@@ -536,6 +551,15 @@ def validar(e, passado=False):
     if d["pais"].lower() == "brasil" and not uf:
         avisos.append("Evento no Brasil sem UF.")
     d["uf"], d["estado"] = uf, UFS.get(uf, "")
+    # país em ISO-2 (o geocode do Google devolve): o banco escreve o nome em `pais` sozinho (gatilho regiao_sincroniza)
+    iso = str(e.get("pais_iso") or "").strip().upper()
+    if iso:
+        if not re.fullmatch(r"[A-Z]{2}", iso):
+            raise Erro("pais_iso inválido: use o código de 2 letras (BR, PT, DE...).")
+        d["pais_iso"] = iso
+        if iso != "BR":
+            d["uf"], d["estado"] = "", ""
+            avisos = [a for a in avisos if a != "Evento no Brasil sem UF."]
     for k, lim in (("lat", 90), ("lng", 180)):
         v = e.get(k)
         if v in (None, ""):
@@ -580,6 +604,38 @@ def validar(e, passado=False):
     return d, avisos
 
 
+def _sem_acento(t):
+    import unicodedata
+    return unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode().lower().strip()
+
+
+def ligar_lineup(d):
+    """Line-up -> perfis (eventos.artistas): cada linha do line-up, sem selo/país/"(Live)", igual ao nome de um perfil publicado.
+    Os nomes sem perfil vão para as notas do agente (a moderação confere)."""
+    linhas = re.split(r"<br>|</p>", re.sub(r"<strong>.*?</strong>", "", d.get("programacao") or ""))
+    nomes = []
+    for l in linhas:
+        t = html.unescape(re.sub(r"<[^>]+>", "", l)).strip()
+        t = re.split(r"\s+[-–|•/@]\s+|\s*\(", t)[0].strip(" -–•*:")
+        t = re.sub(r"[^\w\s&.'-]", "", t).strip()
+        if 2 <= len(t) <= 60 and t not in nomes:
+            nomes.append(t)
+    if not nomes:
+        return [], []
+    perfis = rest("GET", "perfis?select=slug,nome&status=eq.publicado&limit=5000").json()
+    por_nome = {}
+    for p in perfis:
+        por_nome.setdefault(_sem_acento(re.sub(r"\s*\(.*\)$", "", p["nome"])), p["slug"])
+    ligados, soltos = [], []
+    for n in nomes:
+        slug = por_nome.get(_sem_acento(n))
+        if slug and slug not in ligados:
+            ligados.append(slug)
+        elif not slug:
+            soltos.append(n)
+    return ligados, soltos
+
+
 def slug_livre(base):
     usados = {r["slug"] for r in rest("GET", f"eventos?select=slug&rota=eq.evento&slug=like.{base}*").json()}
     if base not in usados:
@@ -595,6 +651,11 @@ def gravar(arquivo, ensaio=False, passado=False):
     d, avisos = validar(e, passado)
     eu()  # falha cedo se a sessão não for da equipe
     d["slug"] = slug_livre(d["slug"])
+    d["artistas"], soltos = ligar_lineup(d)
+    if soltos:
+        nota = "Line-up sem perfil no portal: " + ", ".join(soltos[:40])
+        d["notas_agente"] = (d["notas_agente"] + "\n" + nota).strip()[:3000]
+        avisos.append(f"{len(d['artistas'])} artistas ligados a perfis; {len(soltos)} sem perfil (nas notas).")
     if ensaio:
         return {"ensaio": True, "avisos": avisos, "registro": d}
     r = rest("POST", "eventos?select=id,slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
