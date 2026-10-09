@@ -93,6 +93,7 @@ def gravar_sessao(s):
     dados = {"access_token": s["access_token"], "refresh_token": s["refresh_token"],
              "expires_at": int(time.time()) + int(s.get("expires_in", 3600)), "email": s.get("user", {}).get("email", "")}
     fd = os.open(SESSAO, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # O_CREAT só aplica o modo na criação: arquivo antigo com outra permissão volta a 0600
     with os.fdopen(fd, "w") as f:
         json.dump(dados, f)
     return dados
@@ -164,7 +165,7 @@ def _receber_link(colar):
     if colar:
         print(f"Abra no navegador, clique em \"Conectar terminal\" e copie o código:\n  {CMS}/agente/conectar?porta=9999&estado={estado}&colar=1",
               file=sys.stderr)
-        return input("Código: ").strip()
+        return input("Código: ").strip(), True
     recebido, pronto = {}, threading.Event()
 
     class Porta(http.server.BaseHTTPRequestHandler):
@@ -203,16 +204,23 @@ def _receber_link(colar):
         srv.shutdown()
         raise Erro("Tempo esgotado. Se o navegador não alcança este terminal, use: evento.py login --colar")
     srv.shutdown()
-    return recebido["h"]
+    return recebido["h"], False
 
 
 def login(colar=False):
     url, anon = config()
-    h = _receber_link(colar)
+    h, colado = _receber_link(colar)
     r = requests.post(f"{url}/auth/v1/verify", json={"type": "magiclink", "token_hash": h}, headers={"apikey": anon}, timeout=30)
     if r.status_code != 200:
         raise Erro("Link inválido ou já usado. Rode o login de novo.")
     s = r.json()
+    if colado:
+        # código colado pode ter vindo de outra pessoa (link do /agente/conectar mandado como isca): confirma a conta antes de seguir
+        email = s.get("user", {}).get("email", "") or "(sem e-mail)"
+        print(f"\nEste código entra na conta: {email}", file=sys.stderr)
+        if input("É a SUA conta e foi você quem gerou o código agora? Digite \"sim\" para continuar: ").strip().lower() != "sim":
+            requests.post(f"{url}/auth/v1/logout", headers={"apikey": anon, "Authorization": "Bearer " + s["access_token"]}, timeout=30)
+            raise Erro("Login cancelado: nenhuma sessão foi gravada.")
     fatores = [f for f in s.get("user", {}).get("factors", []) or [] if f.get("factor_type") == "totp" and f.get("status") == "verified"]
     if not fatores:
         raise Erro("Esta conta não tem app autenticador. Configure no CMS (app.trance.com.br) primeiro.")
@@ -675,6 +683,28 @@ def gravar(arquivo, ensaio=False, passado=False):
     r = rest("POST", "eventos?select=id,slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
     return {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "avisos": avisos,
             "moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}", "editar": f"{CMS}/eventos/{r['id']}"}
+
+
+def mudar_artistas(ev, artistas, mensagem=""):
+    """Troca a lista eventos.artistas sem editar o publicado: evento publicado vira proposta (alteracoes, origem agente,
+    aprovada na Moderação); sugestão do próprio agente ainda pendente é completada (mesma regra do `atualizar`).
+    ev = {id, status, origem}. Devolve {"proposta": id} ou {"pendente_atualizado": id}."""
+    id_ = int(ev["id"])
+    if ev.get("status") == "publicado":
+        pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente").json()
+        if pend:
+            raise Erro(f"Já há uma proposta em análise para o evento {id_} (#{pend[0]['id']}, {pend[0]['origem']}): aguarde a Moderação.")
+        r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
+                 json={"tabela": "eventos", "chave": str(id_), "user_id": uid(), "tipo": "edicao", "dados": {"artistas": list(artistas)},
+                       "mensagem": str(mensagem or "Vínculos de line-up (agente)")[:2000], "origem": "agente", "fontes": []}).json()[0]
+        return {"proposta": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
+    if ev.get("status") == "pendente" and ev.get("origem") == "agente":
+        r = rest("PATCH", f"eventos?id=eq.{id_}&status=eq.pendente&origem=eq.agente&select=id",
+                 json={"artistas": list(artistas)}, headers={"Prefer": "return=representation"}).json()
+        if not r:
+            raise Erro(f"Evento {id_} mudou de situação: nada alterado.")
+        return {"pendente_atualizado": id_, "moderacao": f"{CMS}/moderacao/cadastro/eventos/{id_}"}
+    raise Erro(f"Evento {id_} ({ev.get('status')}, origem {ev.get('origem')}): o agente só propõe em publicado ou completa a própria sugestão pendente; edite no CMS.")
 
 
 def atualizar(id_, arquivo):

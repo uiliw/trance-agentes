@@ -1,6 +1,6 @@
 # Agentes do Trance.com.br (plugin do Claude Code)
 
-Para quem é da **equipe do CMS** (app.trance.com.br). Versão 1.3.1.
+Para quem é da **equipe do CMS** (app.trance.com.br). Versão 1.4.0.
 
 ## Instalar (uma vez)
 
@@ -12,7 +12,8 @@ No Claude Code:
 ```
 
 Precisa de acesso ao repositório privado no GitHub (o Claude Code usa o seu login do git/gh) e de Python 3 com
-`requests` e `Pillow` (`pip install requests pillow`).
+`requests` e `Pillow` nas versões fixas da skill:
+`pip install -r ~/.claude/plugins/.../skills/trance/requirements.txt`.
 
 ## Entrar (uma vez por computador)
 

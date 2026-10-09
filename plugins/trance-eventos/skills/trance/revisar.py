@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Revisão da base do Trance.com.br (agente /trance, modo revisar). Plano: cms/PLANO-AGENTE-TRANCE.md, seção 6d.
 
-Só lê (sessão da equipe, como o evento.py). A única escrita é `aplicar vinculos`, que soma em eventos.artistas os vínculos
-que o usuário aprovou no relatório (vínculo = correção pequena, aprovada em lote). O resto vira proposta (artista.py propor)
-ou ajuste no CMS.
+Só lê (sessão da equipe, como o evento.py). A única escrita é `aplicar vinculos`, que transforma os vínculos aprovados no
+relatório em propostas (alteracoes, origem agente) de eventos.artistas para a Moderação do CMS; nunca edita o publicado.
+O resto vira proposta (artista.py propor) ou ajuste no CMS.
 
   revisar.py resumo                         # contagem de cada problema (roda todos os temas)
   revisar.py vinculos [--todos]             # evento ↔ artista: nome no line-up com perfil e sem vínculo; vínculo fora do line-up
@@ -12,7 +12,7 @@ ou ajuste no CMS.
   revisar.py incompletos                    # campos importantes vazios ou datas invertidas
   revisar.py links [--limite 60]            # sites e SoundCloud fora do ar (amostra; Instagram bloqueia robôs)
   revisar.py estilos                        # estilo inexistente; edições do mesmo evento em séries diferentes
-  revisar.py aplicar vinculos <arquivo.json>  # [{"evento": id, "adicionar": [slugs]}] -> soma em eventos.artistas
+  revisar.py aplicar vinculos <arquivo.json>  # [{"evento": id, "adicionar": [slugs], "remover": [slugs]}] -> propostas na Moderação
 
 Saída em JSON; listas longas vêm cortadas (`total` diz quantos são).
 """
@@ -26,7 +26,7 @@ from collections import defaultdict
 
 import requests
 
-from evento import CMS, UA_NAVEGADOR, Erro, eu, norm, nucleo, rest, saida, tudo
+from evento import CMS, UA_NAVEGADOR, Erro, eu, mudar_artistas, norm, nucleo, rest, saida, tudo
 from artista import ROTAS, _arroba, _sc
 
 LIMITE = 40
@@ -252,12 +252,12 @@ def resumo():
 def aplicar_vinculos(arquivo):
     lote = json.loads(pathlib.Path(arquivo).read_text())
     if not isinstance(lote, list):
-        raise Erro("Arquivo: lista de {evento, adicionar}.")
+        raise Erro("Arquivo: lista de {evento, adicionar, remover}.")
     eu()
     feitos, erros = [], []
     for item in lote:
         try:
-            ev = rest("GET", f"eventos?select=id,artistas&id=eq.{int(item['evento'])}").json()
+            ev = rest("GET", f"eventos?select=id,status,origem,artistas&id=eq.{int(item['evento'])}").json()
             if not ev:
                 raise Erro("evento não encontrado")
             atual = ev[0]["artistas"] or []
@@ -265,11 +265,16 @@ def aplicar_vinculos(arquivo):
             if novos:
                 ok = {p["slug"] for p in rest("GET", "perfis?select=slug&slug=in.(" + ",".join(f'"{s}"' for s in novos) + ")").json()}
                 novos = [s for s in novos if s in ok]
-                rest("PATCH", f"eventos?id=eq.{int(item['evento'])}", json={"artistas": atual + novos})
-            feitos.append({"evento": item["evento"], "adicionados": novos})
+            fora = [s for s in item.get("remover") or [] if s in atual]  # vínculo errado (nome no meio do texto, outro artista)
+            feito = {}
+            if novos or fora:  # publicado: proposta (alteracoes, origem agente) aprovada na Moderação; nunca edita o publicado direto
+                msg = "Revisão de vínculos" + (": + " + ", ".join(novos) if novos else "") + (" / - " + ", ".join(fora) if fora else "")
+                feito = mudar_artistas(ev[0], [s for s in atual if s not in fora] + novos, msg)
+            feitos.append({"evento": item["evento"], "adicionados": novos, "removidos": fora, **feito})
         except (Erro, KeyError, ValueError) as e:
             erros.append({"evento": item.get("evento"), "erro": str(e)})
-    return {"ok": not erros, "eventos": len(feitos), "vinculos_adicionados": sum(len(f["adicionados"]) for f in feitos), "erros": erros}
+    return {"ok": not erros, "eventos": len(feitos), "propostas": [f["proposta"] for f in feitos if f.get("proposta")], "vinculos_adicionados": sum(len(f["adicionados"]) for f in feitos),
+            "vinculos_removidos": sum(len(f["removidos"]) for f in feitos), "erros": erros}
 
 
 def main(args):

@@ -6,7 +6,7 @@ e só vão ao ar aprovados na Moderação do CMS.
 
   artista.py buscar "<nome>" [--instagram @x|url] [--soundcloud url]   # existentes / prováveis na base
   artista.py gravar <perfil.json|-> [--ensaio]                           # perfil novo pendente (+ até 3 sets do SoundCloud)
-  artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]         # soma perfis em eventos.artistas
+  artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]         # vínculo: proposta na Moderação (publicado) ou completa a própria sugestão pendente
   artista.py propor <slug> <parcial.json|-> [--ensaio]                   # proposta de alteração de perfil publicado (Moderação)
   artista.py eventos "<nome>" [--slug x] [--sem-goabase]                 # eventos do artista: base (vinculados/no line-up) + Goabase
   artista.py candidatos [--pais BR] [--goabase 20]                        # artistas sem perfil nos line-ups dos próximos eventos
@@ -25,7 +25,7 @@ import requests
 import datetime as dt
 import html
 
-from evento import (CMS, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, eu, goabase_evento, norm, paragrafos, rest, saida, slugify,
+from evento import (CMS, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, eu, goabase_evento, mudar_artistas, norm, paragrafos, rest, saida, slugify,
                     tudo, uid)
 
 # categoria do banco -> caminho do perfil no site (mesmo mapa de _rota_perfil no nativo.sql)
@@ -231,7 +231,7 @@ def vincular(evento_id, slugs, ensaio=False):
     slugs = list(dict.fromkeys(s.strip() for s in slugs if s.strip()))
     if not slugs:
         raise Erro("Informe ao menos um slug de perfil.")
-    ev = rest("GET", f"eventos?select=id,rota,slug,nome,status,artistas&id=eq.{evento_id}").json()
+    ev = rest("GET", f"eventos?select=id,rota,slug,nome,status,origem,artistas&id=eq.{evento_id}").json()
     if not ev:
         raise Erro(f"Evento {evento_id} não encontrado.")
     ev = ev[0]
@@ -247,9 +247,10 @@ def vincular(evento_id, slugs, ensaio=False):
            "ja_vinculados": [s for s in slugs if s in antes]}
     if ensaio or not novos:
         return res | {"ensaio": ensaio, "alterado": False}
-    rest("PATCH", f"eventos?id=eq.{evento_id}", json={"artistas": depois})
+    eu()
+    feito = mudar_artistas(ev, depois, "Vínculo de artistas do line-up: " + ", ".join(novos))  # publicado vira proposta na Moderação
     pendentes = [n["nome"] for n in res["novos"] if n["status"] != "publicado"]
-    return res | {"ok": True, "alterado": True,
+    return res | feito | {"ok": True, "alterado": True,
                   "aviso": ("Aparecem no site quando os perfis forem aprovados: " + ", ".join(pendentes)) if pendentes else ""}
 
 
