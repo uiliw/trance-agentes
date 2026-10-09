@@ -1,6 +1,6 @@
 # Campos do evento (`evento.py gravar`)
 
-O script recusa qualquer campo fora desta lista e grava sempre `rota='evento'`, `status='pendente'`, `origem='agente'`.
+O script recusa qualquer campo fora desta lista e grava sempre `status='pendente'` e `origem='agente'`. O endereço sai do tipo (`categoria`): Festivais → `/festival/<slug>`, Festas → `/festa/<slug>`, Feiras / Exposições → `/feira-exposicao/<slug>`, Cursos / Retiros → `/curso-retiro/<slug>` (o ensaio mostra a URL final).
 
 | Campo | Formato | Regra |
 |---|---|---|
