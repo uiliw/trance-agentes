@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Ferramentas do agente de eventos (skill /trance-eventos). Plano: cms/PLANO-AGENTE-EVENTOS.md (repo trance.local).
+"""Ferramentas do agente /trance, parte de eventos (artistas: artista.py). Planos: cms/PLANO-AGENTE-TRANCE.md e
+cms/PLANO-AGENTE-EVENTOS.md (repo trance.local).
 
 Grava no Supabase com a SESSÃO DA PESSOA da equipe do CMS (login + código do app), nunca com a chave secreta:
 o RLS (cms_pode_editar) decide o que pode, e o histórico do CMS registra quem gravou.
@@ -47,6 +48,7 @@ UA = "trance.com.br agente de eventos (+https://www.trance.com.br)"
 UA_NAVEGADOR = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 
 CATEGORIAS = ["Festivais", "Festas", "Feiras / Exposições", "Cursos / Retiros"]
+ROTA_TIPO = {"Festivais": "festival", "Festas": "festa", "Feiras / Exposições": "feira-exposicao", "Cursos / Retiros": "curso-retiro"}
 UFS = {"AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "Bahia", "CE": "Ceará", "DF": "Distrito Federal",
        "ES": "Espírito Santo", "GO": "Goiás", "MA": "Maranhão", "MT": "Mato Grosso", "MS": "Mato Grosso do Sul", "MG": "Minas Gerais",
        "PA": "Pará", "PB": "Paraíba", "PR": "Paraná", "PE": "Pernambuco", "PI": "Piauí", "RJ": "Rio de Janeiro",
@@ -54,8 +56,8 @@ UFS = {"AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "B
        "SP": "São Paulo", "SE": "Sergipe", "TO": "Tocantins"}
 TEXTO = ["nome", "local", "cidade", "pais"]
 URLS = ["site", "instagram", "facebook", "youtube", "video", "ingresso"]
-PERMITIDOS = {"nome", "slug", "categoria", "inicio", "fim", "resumo", "release", "programacao", "imagem", "logo", "local", "cidade",
-              "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente"}
+PERMITIDOS = {"nome", "slug", "categoria", "inicio", "fim", "resumo", "release", "programacao", "imagem", "flyer", "logo", "local", "cidade",
+              "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente", "artistas"}
 DATA = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REF = re.compile(r"^conta:[0-9a-f-]{36}/[0-9a-f-]{36}\.(webp|gif|jpg|png)$")
 
@@ -574,7 +576,7 @@ def validar(e, passado=False):
         if v and not re.match(r"^https?://[^\s]{3,}$", v):
             raise Erro(f"{k}: endereço inválido ({v[:60]}).")
         d[k] = v[:1000]
-    for k in ("imagem", "logo"):
+    for k in ("imagem", "flyer", "logo"):
         v = str(e.get(k) or "").strip()
         # só imagem guardada pelo próprio script (vai para a Duda na aprovação) ou já na Duda; nada de link externo no site
         if v and not (REF.match(v) or re.match(r"^https://irp\.cdn-website\.com/\S+$", v)):
@@ -600,7 +602,8 @@ def validar(e, passado=False):
     d["slug"] = slugify(e.get("slug") or f"{d['nome']} {d['inicio'][:4] if d['inicio'][:4] not in d['nome'] else ''}")
     if not d["slug"]:
         raise Erro("Não consegui gerar o endereço (slug).")
-    d.update(rota="evento", status="pendente", origem="agente")
+    # endereço pelo tipo (gatilho rota_por_tipo no banco): /festival, /festa, /feira-exposicao, /curso-retiro
+    d.update(rota=ROTA_TIPO[d["categoria"]], status="pendente", origem="agente")
     return d, avisos
 
 
@@ -610,7 +613,8 @@ def _sem_acento(t):
 
 
 def ligar_lineup(d):
-    """Line-up -> perfis (eventos.artistas): cada linha do line-up, sem selo/país/"(Live)", igual ao nome de um perfil publicado.
+    """Line-up -> perfis (eventos.artistas): cada linha do line-up, sem selo/país/"(Live)", igual ao nome de um perfil publicado
+    ou pendente (ex.: perfil novo que o agente acabou de criar; o vínculo aparece no site quando o perfil for aprovado).
     Os nomes sem perfil vão para as notas do agente (a moderação confere)."""
     linhas = re.split(r"<br>|</p>", re.sub(r"<strong>.*?</strong>", "", d.get("programacao") or ""))
     nomes = []
@@ -622,7 +626,7 @@ def ligar_lineup(d):
             nomes.append(t)
     if not nomes:
         return [], []
-    perfis = rest("GET", "perfis?select=slug,nome&status=eq.publicado&limit=5000").json()
+    perfis = tudo("perfis?select=slug,nome,status&status=in.(publicado,pendente)&order=status.desc")  # publicado vence
     por_nome = {}
     for p in perfis:
         por_nome.setdefault(_sem_acento(re.sub(r"\s*\(.*\)$", "", p["nome"])), p["slug"])
@@ -636,8 +640,8 @@ def ligar_lineup(d):
     return ligados, soltos
 
 
-def slug_livre(base):
-    usados = {r["slug"] for r in rest("GET", f"eventos?select=slug&rota=eq.evento&slug=like.{base}*").json()}
+def slug_livre(base, rota="festa"):
+    usados = {r["slug"] for r in rest("GET", f"eventos?select=slug&rota=eq.{rota}&slug=like.{base}*").json()}
     if base not in usados:
         return base
     n = 2
@@ -650,16 +654,26 @@ def gravar(arquivo, ensaio=False, passado=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     d, avisos = validar(e, passado)
     eu()  # falha cedo se a sessão não for da equipe
-    d["slug"] = slug_livre(d["slug"])
+    d["slug"] = slug_livre(d["slug"], d["rota"])
     d["artistas"], soltos = ligar_lineup(d)
+    # artistas indicados à mão (slugs): somam aos achados pelo line-up; só perfis que existem
+    extra = [str(x).strip() for x in (e.get("artistas") or []) if str(x).strip()]
+    if extra:
+        achados = {r["slug"] for r in rest("GET", "perfis?select=slug&slug=in.(" + ",".join(f'"{x}"' for x in extra) + ")").json()}
+        faltam = [x for x in extra if x not in achados]
+        if faltam:
+            raise Erro("artistas sem perfil na base: " + ", ".join(faltam))
+        d["artistas"] = list(dict.fromkeys(d["artistas"] + extra))
     if soltos:
         nota = "Line-up sem perfil no portal: " + ", ".join(soltos[:40])
         d["notas_agente"] = (d["notas_agente"] + "\n" + nota).strip()[:3000]
         avisos.append(f"{len(d['artistas'])} artistas ligados a perfis; {len(soltos)} sem perfil (nas notas).")
+    url = f"https://www.trance.com.br/{d['rota']}/{d['slug']}"
+    home = (d["fim"] or d["inicio"])[:10] >= dt.date.today().isoformat()
     if ensaio:
-        return {"ensaio": True, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "url": url, "na_agenda_da_home": home, "avisos": avisos, "registro": d}
     r = rest("POST", "eventos?select=id,slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "id": r["id"], "slug": r["slug"], "status": r["status"], "origem": r["origem"], "avisos": avisos,
+    return {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "avisos": avisos,
             "moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}", "editar": f"{CMS}/eventos/{r['id']}"}
 
 

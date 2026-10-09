@@ -12,7 +12,8 @@ O script recusa qualquer campo fora desta lista e grava sempre `rota='evento'`, 
 | `resumo` | texto (≤ 160) | 1–2 frases para cards e Google. O que é + quando + onde. |
 | `release` | texto puro | 2–5 parágrafos separados por linha em branco (o script converte para HTML). Palavras próprias, pt-BR. |
 | `programacao` | lista | Nomes (`["Astrix", "Ajja"]`) ou palcos (`[{"titulo": "Main Stage", "artistas": [...]}]`). Grafia do perfil quando existir. Sem line-up divulgado: lista vazia. |
-| `imagem` | `conta:…` | Ref devolvida por `evento.py imagem` (flyer oficial). |
+| `imagem` | `conta:…` | Imagem de capa: ref devolvida por `evento.py imagem` (arte horizontal/banner; sem ela, use o flyer). |
+| `flyer` | `conta:…` | Flyer oficial da edição (arte vertical). Aparece no hover da agenda da home e na coluna da direita da página do evento. |
 | `logo` | `conta:…` | Opcional. |
 | `local` | texto | Nome do lugar e/ou endereço (`Sítio Paraíso, Estrada X km 5`). |
 | `cidade` | texto | Cidade do evento. |
@@ -49,5 +50,53 @@ O script recusa qualquer campo fora desta lista e grava sempre `rota='evento'`, 
     {"url": "https://www.sympla.com.br/evento/exemplo-festival-2027/123456", "usado": "ingresso, horários"}
   ],
   "notas_agente": "Horário de término estimado pelo Sympla. Artistas sem perfil: Fulano, Beltrano."
+}
+```
+
+## Evento: artistas indicados à mão
+
+`"artistas": ["slug-1", "slug-2"]` soma perfis (publicados ou pendentes) aos que o line-up liga sozinho. Slug que não existe = erro.
+
+## Perfil (artista.py gravar)
+
+| Campo | Valor | Observação |
+|---|---|---|
+| `nome` | texto | Nome artístico como o artista usa. Obrigatório. |
+| `slug` | texto | Opcional (sai do nome). A URL final vem no ensaio (`/dj/<slug>`, `/vj/<slug>`…). |
+| `categoria` | `djs` · `vjs` · `foto-video` · `cenografia` · `performances` · `artes-visionarias` · `oficinas` | Padrão `djs`. |
+| `produtor` | `true`/`false` | Só para DJ (tag "Produtor"). |
+| `pais` | ISO-2 (`BR`, `PT`, `IL`…) | Padrão `BR`. |
+| `uf` | sigla (`SP`, `SC`…) | Só Brasil; define a região. |
+| `gravadoras` | lista de slugs | Gravadoras do portal (`/gravadora/<slug>`): link no perfil e o artista na página do selo. Slug inexistente = erro. |
+| `crew` | texto | Crew, núcleo ou gravadora que ainda não está na base (avise no relatório para a equipe cadastrar). |
+| `estilos` | lista de slugs | Só estilos da Wikidelic (`full-on`, `progressive`…); slug inexistente = erro. |
+| `resumo` | até 160 caracteres | 1 ou 2 frases. |
+| `release` | texto (parágrafos com linha em branco) | Palavras próprias, pt-BR. |
+| `foto`, `capa` | `conta:…` | Ref de `evento.py imagem`. Foto quadrada de preferência. |
+| `site`, `instagram`, `facebook`, `soundcloud`, `youtube`, `video` | URL | `soundcloud` = página do artista. |
+| `sets` | até 3 links (ou `{soundcloud, titulo?, tipo: set|release}`) | Faixas/sets do SoundCloud; título e capa vêm do oEmbed; entram pendentes com o perfil. |
+| `fontes` | lista de `{url, usado}` | Obrigatório. |
+| `notas_agente` | texto | O que ficou incerto. |
+
+Exemplo:
+
+```json
+{
+  "nome": "Fulano",
+  "categoria": "djs",
+  "produtor": true,
+  "pais": "BR",
+  "uf": "SC",
+  "gravadoras": ["zenon-records"],
+  "crew": "Coletivo Fulano",
+  "estilos": ["full-on"],
+  "resumo": "DJ e produtor de full-on de Florianópolis.",
+  "release": "Primeiro parágrafo.\n\nSegundo parágrafo.",
+  "foto": "conta:0b6c…/9f1e….webp",
+  "instagram": "https://instagram.com/fulano",
+  "soundcloud": "https://soundcloud.com/fulano",
+  "sets": ["https://soundcloud.com/fulano/set-ao-vivo"],
+  "fontes": [{"url": "https://soundcloud.com/fulano", "usado": "bio, país, sets"}],
+  "notas_agente": "UF deduzida da bio (\"Floripa\")."
 }
 ```
