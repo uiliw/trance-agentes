@@ -18,12 +18,14 @@ import sys
 
 import requests
 
-from evento import CMS, REF, Erro, eu, norm, paragrafos, rest, saida, sessao, slugify, tudo, uid
+from evento import CMS, faltando, REF, Erro, eu, norm, paragrafos, rest, saida, sessao, slugify, tudo, uid
 from artista import base_perfis, url_perfil
 
 URLS = ["site", "instagram", "soundcloud", "bandcamp", "beatport"]
-PERMITIDOS = {"nome", "slug", "pais", "estilos", "logo", "release", *URLS, "fontes", "notas_agente"}
-PROPOR = ["nome", "pais", "estilos", "logo", "release", *URLS]
+PERMITIDOS = {"nome", "slug", "pais", "estilos", "logo", "release", "seo_title", "seo_description", *URLS, "fontes", "notas_agente"}
+PROPOR = ["nome", "pais", "estilos", "logo", "release", "seo_title", "seo_description", *URLS]
+# tudo o que o site mostra da gravadora: o ensaio lista o que ficou vazio ("faltando")
+COMPLETO = ["pais", "estilos", "logo", "release", "seo_title", "seo_description", *URLS]
 
 
 def _k(nome):
@@ -120,6 +122,11 @@ def validar(e):
     if not d["logo"]:
         avisos.append("Sem logo.")
     d["release"] = paragrafos(e.get("release"))
+    # textos do Google (bloco "Google" do CMS): título até 60, descrição até 158
+    for k, lim in (("seo_title", 60), ("seo_description", 158)):
+        d[k] = re.sub(r"\s+", " ", str(e.get(k) or "")).strip()
+        if len(d[k]) > lim:
+            raise Erro(f"{k} com {len(d[k])} caracteres (máx. {lim}).")
     for k in URLS:
         v = str(e.get(k) or "").strip()
         if v and not re.match(r"^https?://[^\s]{3,}$", v):
@@ -150,10 +157,11 @@ def gravar(arquivo, ensaio=False):
     while d["slug"] in usados:
         d["slug"], n = f"{base_slug}-{n}", n + 1
     url = _url(d)
+    falta = faltando(d, COMPLETO)
     if ensaio:
-        return {"ensaio": True, "url": url, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d}
     r = rest("POST", "gravadoras?select=slug,status", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "avisos": avisos,
+    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "faltando": falta, "avisos": avisos,
             "moderacao": f"{CMS}/moderacao/cadastro/gravadoras/{r['slug']}"}
 
 
@@ -168,7 +176,8 @@ def propor(slug, arquivo, ensaio=False):
     mud = {k: {"antes": a.get(k), "depois": d[k]} for k in novos if a.get(k) != d[k]}
     if not mud:
         raise Erro("Nada muda.")
-    res = {"gravadora": {"slug": slug, "nome": a["nome"], "site": _url(a)}, "mudancas": mud, "avisos": avisos}
+    res = {"gravadora": {"slug": slug, "nome": a["nome"], "site": _url(a)}, "mudancas": mud,
+           "faltando": faltando(a | {k: d[k] for k in mud}, COMPLETO), "avisos": avisos}
     if ensaio:
         return res | {"ensaio": True}
     eu()

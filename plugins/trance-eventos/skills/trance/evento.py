@@ -58,6 +58,9 @@ TEXTO = ["nome", "local", "cidade", "pais"]
 URLS = ["site", "instagram", "facebook", "youtube", "video", "ingresso"]
 PERMITIDOS = {"nome", "slug", "categoria", "inicio", "fim", "resumo", "release", "programacao", "imagem", "flyer", "logo", "local", "cidade",
               "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente", "artistas"}
+# tudo o que o site mostra do evento: o ensaio lista o que ficou vazio ("faltando")
+COMPLETO = ["fim", "resumo", "release", "programacao", "flyer", "imagem", "logo", "local", "cidade", "lat", "lng", "site", "instagram",
+            "facebook", "video", "ingresso"]
 DATA = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REF = re.compile(r"^conta:[0-9a-f-]{36}/[0-9a-f-]{36}\.(webp|gif|jpg|png)$")
 
@@ -507,6 +510,11 @@ def slugify(s):
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", norm(s))).strip("-")[:110]
 
 
+def faltando(d, campos):
+    """Campos que ficaram vazios: o agente pesquisa de novo antes de gravar (ou explica nas notas por que não achou)."""
+    return [k for k in campos if d.get(k) in (None, "", [], {})]
+
+
 def paragrafos(texto):
     """Texto puro -> HTML do CMS (só p/br), escapado. Parágrafos separados por linha em branco."""
     blocos = [b.strip() for b in re.split(r"\n\s*\n", str(texto or "").strip()) if b.strip()]
@@ -678,11 +686,12 @@ def gravar(arquivo, ensaio=False, passado=False):
         avisos.append(f"{len(d['artistas'])} artistas ligados a perfis; {len(soltos)} sem perfil (nas notas).")
     url = f"https://www.trance.com.br/{d['rota']}/{d['slug']}"
     home = (d["fim"] or d["inicio"])[:10] >= dt.date.today().isoformat()
+    falta = faltando(d, COMPLETO + (["uf"] if d.get("pais_iso", "BR") == "BR" and d["pais"].lower() == "brasil" else []))
     if ensaio:
-        return {"ensaio": True, "url": url, "na_agenda_da_home": home, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "url": url, "na_agenda_da_home": home, "faltando": falta, "avisos": avisos, "registro": d}
     r = rest("POST", "eventos?select=id,slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "avisos": avisos,
-            "moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}", "editar": f"{CMS}/eventos/{r['id']}"}
+    return {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "faltando": falta,
+            "avisos": avisos, "moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}", "editar": f"{CMS}/eventos/{r['id']}"}
 
 
 def mudar_artistas(ev, artistas, mensagem=""):

@@ -25,7 +25,7 @@ import requests
 import datetime as dt
 import html
 
-from evento import (CMS, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, eu, goabase_evento, mudar_artistas, norm, paragrafos, rest, saida, slugify,
+from evento import (CMS, faltando, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, eu, goabase_evento, mudar_artistas, norm, paragrafos, rest, saida, slugify,
                     tudo, uid)
 
 # categoria do banco -> caminho do perfil no site (mesmo mapa de _rota_perfil no nativo.sql)
@@ -33,8 +33,11 @@ ROTAS = {"djs": "dj", "vjs": "vj", "foto-video": "foto-e-video", "cenografia": "
          "artes-visionarias": "arte-visionaria", "oficinas": "oficina"}
 URLS = ["site", "instagram", "facebook", "soundcloud", "youtube", "video"]
 PERMITIDOS = {"nome", "slug", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "estilos", "resumo", "release", "foto", "capa",
-              *URLS, "fontes", "notas_agente", "sets"}
+              "galeria", *URLS, "fontes", "notas_agente", "sets"}
 MAX_SETS = 3
+MAX_GALERIA = 12
+# tudo o que o site mostra do perfil: o ensaio lista o que ficou vazio ("faltando")
+COMPLETO = ["estilos", "resumo", "release", "foto", "capa", "galeria", "instagram", "soundcloud", "facebook", "site", "youtube", "video"]
 
 
 def url_perfil(p):
@@ -158,6 +161,14 @@ def validar(e):
         d[k] = v
     if not d["foto"]:
         avisos.append("Sem foto.")
+    gal = e.get("galeria") or []
+    if not isinstance(gal, list) or len(gal) > MAX_GALERIA:
+        raise Erro(f"galeria: lista com até {MAX_GALERIA} refs conta:… (fotos do artista tocando, em festa, divulgação).")
+    gal = list(dict.fromkeys(str(x).strip() for x in gal if str(x).strip()))
+    for v in gal:
+        if not (REF.match(v) or re.match(r"^https://irp\.cdn-website\.com/\S+$", v)):
+            raise Erro("galeria: use refs conta:… devolvidas por 'evento.py imagem'.")
+    d["galeria"] = gal
     for k in URLS:
         v = str(e.get(k) or "").strip()
         if v and not re.match(r"^https?://[^\s]{3,}$", v):
@@ -214,13 +225,16 @@ def gravar(arquivo, ensaio=False, forcar=False):
         sets.append({"perfil": d["slug"], "titulo": (s.get("titulo") or info["titulo"] or "Set")[:200], "tipo": tipo,
                      "soundcloud": info["soundcloud"], "capa": info["capa"], "status": "pendente", "origem": "agente"})
     url = url_perfil(d)
+    falta = faltando(d, COMPLETO + (["uf"] if d["pais"] == "BR" else []) + ([] if d["gravadoras"] or d["crew"] else ["gravadoras"]))
+    if not sets:
+        falta.append("sets")
     if ensaio:
-        return {"ensaio": True, "url": url, "avisos": avisos, "registro": d, "sets": sets}
+        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d, "sets": sets}
     r = rest("POST", "perfis?select=slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
     gravados = []
     for s in sets:
         gravados.append(rest("POST", "sets?select=id,titulo", json=s, headers={"Prefer": "return=representation"}).json()[0])
-    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "origem": r["origem"], "sets": gravados, "avisos": avisos,
+    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "origem": r["origem"], "sets": gravados, "faltando": falta, "avisos": avisos,
             "moderacao": f"{CMS}/moderacao/cadastro/perfis/{r['slug']}", "editar": f"{CMS}/artistas/{r['slug']}"}
 
 
@@ -256,7 +270,7 @@ def vincular(evento_id, slugs, ensaio=False):
 
 # ---------------------------------------------------------------- proposta de alteração (perfil publicado)
 # o que o CMS aplica de uma proposta do agente (CAMPOS_PUBLICO de perfis + uf, pais e produtor; ver cms/src/lib/secoes.ts)
-PROPOR = ["nome", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "estilos", "resumo", "release", "foto", "capa",
+PROPOR = ["nome", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "estilos", "resumo", "release", "foto", "capa", "galeria",
           "site", "instagram", "facebook", "soundcloud", "youtube", "video"]
 
 
@@ -282,7 +296,8 @@ def propor(slug, arquivo, ensaio=False):
     mudancas = {k: {"antes": a.get(k), "depois": dados[k]} for k in dados if a.get(k) != dados[k]}
     if not mudancas:
         raise Erro("Os valores propostos são iguais aos atuais.")
-    res = {"perfil": {"slug": slug, "nome": a["nome"], "site": url_perfil(a)}, "mudancas": mudancas, "avisos": avisos}
+    res = {"perfil": {"slug": slug, "nome": a["nome"], "site": url_perfil(a)}, "mudancas": mudancas,
+           "faltando": faltando(a | dados, COMPLETO), "avisos": avisos}
     if ensaio:
         return res | {"ensaio": True}
     eu()

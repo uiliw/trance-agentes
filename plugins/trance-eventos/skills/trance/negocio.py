@@ -16,7 +16,7 @@ import sys
 
 import requests
 
-from evento import CMS, REF, UFS, Erro, eu, norm, paragrafos, rest, saida, slugify, tudo, uid
+from evento import CMS, faltando, REF, UFS, Erro, eu, norm, paragrafos, rest, saida, slugify, tudo, uid
 from artista import _arroba
 
 # mesmas opções do CMS (cms/src/lib/secoes.ts: TAGS_LOJA, TAGS_SERVICO): tag fora da lista trava a aprovação
@@ -27,6 +27,8 @@ TAGS = {"loja": ["Acessórios", "Artesanato", "Cartucheiras", "Comidas / Bebidas
 URLS = ["site", "instagram", "facebook", "youtube", "video"]
 PERMITIDOS = {"tipo", "nome", "slug", "tags", "cidade", "uf", "pais", "resumo", "release", "logo", "capa", *URLS, "fontes", "notas_agente"}
 PROPOR = ["nome", "tags", "cidade", "uf", "pais", "resumo", "release", "logo", "capa", *URLS]
+# tudo o que o site mostra da loja/serviço: o ensaio lista o que ficou vazio ("faltando")
+COMPLETO = ["tags", "cidade", "resumo", "release", "logo", "capa", "site", "instagram", "facebook", "youtube", "video"]
 
 
 def _dom(u):
@@ -114,10 +116,11 @@ def gravar(arquivo, ensaio=False):
     while d["slug"] in usados:
         d["slug"], n = f"{base}-{n}", n + 1
     url = _url(d)
+    falta = faltando(d, COMPLETO + (["uf"] if d["pais"] == "BR" else []))
     if ensaio:
-        return {"ensaio": True, "url": url, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d}
     r = rest("POST", "negocios?select=tipo,slug,status", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "chave": f"{r['tipo']}/{r['slug']}", "url": url, "avisos": avisos,
+    return {"ok": True, "chave": f"{r['tipo']}/{r['slug']}", "url": url, "faltando": falta, "avisos": avisos,
             "moderacao": f"{CMS}/moderacao/cadastro/negocios/{r['tipo']}/{r['slug']}"}
 
 
@@ -133,7 +136,8 @@ def propor(chave, arquivo, ensaio=False):
     mud = {k: {"antes": a.get(k), "depois": d[k]} for k in novos if a.get(k) != d[k]}
     if not mud:
         raise Erro("Nada muda.")
-    res = {"negocio": {"chave": chave, "nome": a["nome"], "site": _url(a)}, "mudancas": mud, "avisos": avisos}
+    res = {"negocio": {"chave": chave, "nome": a["nome"], "site": _url(a)}, "mudancas": mud,
+           "faltando": faltando(a | {k: d[k] for k in mud}, COMPLETO), "avisos": avisos}
     if ensaio:
         return res | {"ensaio": True}
     eu()

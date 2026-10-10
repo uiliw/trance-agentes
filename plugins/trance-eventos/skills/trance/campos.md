@@ -73,6 +73,7 @@ O script recusa qualquer campo fora desta lista e grava sempre `status='pendente
 | `resumo` | até 160 caracteres | 1 ou 2 frases. |
 | `release` | texto (parágrafos com linha em branco) | Palavras próprias, pt-BR. |
 | `foto`, `capa` | `conta:…` | Ref de `evento.py imagem`. Foto quadrada de preferência. |
+| `galeria` | lista de `conta:…` (até 12) | Fotos do artista tocando, em festa, de divulgação. Sem repetir a foto/capa. |
 | `site`, `instagram`, `facebook`, `soundcloud`, `youtube`, `video` | URL | `soundcloud` = página do artista. |
 | `sets` | até 3 links (ou `{soundcloud, titulo?, tipo: set|release}`) | Faixas/sets do SoundCloud; título e capa vêm do oEmbed; entram pendentes com o perfil. |
 | `fontes` | lista de `{url, usado}` | Obrigatório. |
@@ -93,6 +94,8 @@ Exemplo:
   "resumo": "DJ e produtor de full-on de Florianópolis.",
   "release": "Primeiro parágrafo.\n\nSegundo parágrafo.",
   "foto": "conta:0b6c…/9f1e….webp",
+  "capa": "conta:0b6c…/7a2d….webp",
+  "galeria": ["conta:0b6c…/1c3e….webp", "conta:0b6c…/5b8f….webp"],
   "instagram": "https://instagram.com/fulano",
   "soundcloud": "https://soundcloud.com/fulano",
   "sets": ["https://soundcloud.com/fulano/set-ao-vivo"],
@@ -100,3 +103,25 @@ Exemplo:
   "notas_agente": "UF deduzida da bio (\"Floripa\")."
 }
 ```
+
+Todo ensaio (`gravar`/`propor --ensaio`) devolve `faltando`: campos vazios que o site mostra. Pesquise de novo antes do relatório
+(seção "Cadastro completo" da SKILL.md); o que não existir vai em `notas_agente`.
+
+## Gravadora (gravadora.py gravar)
+
+| Campo | Valor | Observação |
+|---|---|---|
+| `nome` | texto | Obrigatório. |
+| `pais` | por extenso | `Brasil`, `Israel`, `Reino Unido`… |
+| `estilos` | lista de slugs | Só da Wikidelic. |
+| `logo` | `conta:…` | Discogs, Bandcamp, SoundCloud, Instagram. |
+| `release` | texto (parágrafos) | História, artistas, som, lançamentos marcantes. Palavras próprias. |
+| `seo_title` | até 60 | Título para o Google: `Nome: gravadora de psytrance de Israel`. |
+| `seo_description` | até 158 | Descrição para o Google, 1–2 frases. |
+| `site`, `instagram`, `soundcloud`, `bandcamp`, `beatport` | URL | Oficiais. |
+| `fontes`, `notas_agente` | | Como no perfil. |
+
+## Loja ou serviço (negocio.py gravar)
+
+`tipo` (loja | servico), `nome`, `tags` (só de `negocio.py tags`), `cidade`, `uf`, `pais` (ISO-2), `resumo` (≤ 160), `release`,
+`logo`, `capa`, `site`, `instagram`, `facebook`, `youtube`, `video`, `fontes`, `notas_agente`.
