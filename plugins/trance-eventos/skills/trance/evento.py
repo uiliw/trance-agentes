@@ -700,6 +700,13 @@ def mudar_artistas(ev, artistas, mensagem=""):
     aprovada na Moderação); sugestão do próprio agente ainda pendente é completada (mesma regra do `atualizar`).
     ev = {id, status, origem}. Devolve {"proposta": id} ou {"pendente_atualizado": id}."""
     id_ = int(ev["id"])
+    # só acrescentar (publicado ou pendente): direto, sem Moderação (rpc agente_vincular, 2026-10-14); tirar segue como proposta
+    atual = rest("GET", f"eventos?select=artistas&id=eq.{id_}").json()
+    atual = (atual[0]["artistas"] or []) if atual else []
+    if ev.get("status") in ("publicado", "pendente") and set(atual) <= set(artistas):
+        novos = [s for s in artistas if s not in atual]
+        feitos = rest("POST", "rpc/agente_vincular", json={"p_evento": id_, "p_slugs": novos}).json() if novos else []
+        return {"vinculados": feitos, "site": "sem Moderação: vale na hora (perfis pendentes aparecem quando aprovados)"}
     if ev.get("status") == "publicado":
         pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente").json()
         if pend:

@@ -232,16 +232,16 @@ Selo sem fonte confiável (só o nome) ou fora da cena: não cadastre; fica no `
 
 ```bash
 python3 <pasta-da-skill>/artista.py gravar /caminho/perfil.json [--ensaio]
-python3 <pasta-da-skill>/artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]   # proposta de eventos.artistas
+python3 <pasta-da-skill>/artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]   # soma em eventos.artistas (direto, sem Moderação)
 python3 <pasta-da-skill>/artista.py sets <slug> <url> [<url> ...] [--release] [--ensaio]   # até 3 sets/releases do SoundCloud em perfil que já existe
 ```
 
 Perfil existente sem sets (ou com sets antigos): ofereça os 3 mais recentes do SoundCloud dele com `artista.py sets` (entram
 pendentes; os já cadastrados voltam em `ja_cadastrados`).
 
-Vínculo (evento ↔ artista) vale em lote, aprovado na pergunta do relatório. Evento publicado: vira **proposta** na Moderação
-(alteracoes, origem agente; um humano aprova); sugestão do próprio agente ainda pendente: é completada. Nunca edita o publicado
-direto. Já há proposta em análise para o evento: avise e espere a Moderação. Perfil e evento novos sempre entram pendentes.
+Vínculo (evento ↔ artista) vale em lote, aprovado na pergunta do relatório. **Acrescentar** artista (evento publicado ou
+pendente) vale na hora, sem Moderação (rpc `agente_vincular`: só soma perfis que existem; perfil pendente aparece no site quando
+aprovado). **Tirar** artista de evento publicado vira proposta na Moderação. Perfil e evento novos sempre entram pendentes.
 
 ## 11. Gravadora
 

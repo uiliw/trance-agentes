@@ -277,9 +277,11 @@ def aplicar_vinculos(arquivo):
                 novos = [s for s in novos if s in ok]
             fora = [s for s in item.get("remover") or [] if s in atual]  # vínculo errado (nome no meio do texto, outro artista)
             feito = {}
-            if novos or fora:  # publicado: proposta (alteracoes, origem agente) aprovada na Moderação; nunca edita o publicado direto
-                msg = "Revisão de vínculos" + (": + " + ", ".join(novos) if novos else "") + (" / - " + ", ".join(fora) if fora else "")
-                feito = mudar_artistas(ev[0], [s for s in atual if s not in fora] + novos, msg)
+            if novos:  # acrescentar: direto, sem Moderação (rpc agente_vincular)
+                feito = mudar_artistas(ev[0], atual + novos)
+            if fora:  # tirar: proposta (alteracoes, origem agente) aprovada na Moderação; nunca edita o publicado direto
+                msg = "Revisão de vínculos: - " + ", ".join(fora)
+                feito |= mudar_artistas(ev[0], [s for s in atual + novos if s not in fora], msg)
             feitos.append({"evento": item["evento"], "adicionados": novos, "removidos": fora, **feito})
         except (Erro, KeyError, ValueError) as e:
             erros.append({"evento": item.get("evento"), "erro": str(e)})

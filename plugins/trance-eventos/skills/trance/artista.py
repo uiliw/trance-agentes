@@ -270,7 +270,7 @@ def vincular(evento_id, slugs, ensaio=False):
     if ensaio or not novos:
         return res | {"ensaio": ensaio, "alterado": False}
     eu()
-    feito = mudar_artistas(ev, depois, "Vínculo de artistas do line-up: " + ", ".join(novos))  # publicado vira proposta na Moderação
+    feito = mudar_artistas(ev, depois, "Vínculo de artistas do line-up: " + ", ".join(novos))  # só acrescenta: direto, sem Moderação
     pendentes = [n["nome"] for n in res["novos"] if n["status"] != "publicado"]
     return res | feito | {"ok": True, "alterado": True,
                   "aviso": ("Aparecem no site quando os perfis forem aprovados: " + ", ".join(pendentes)) if pendentes else ""}
