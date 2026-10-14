@@ -204,9 +204,19 @@ nome; o usuário pode pedir o próximo lote). Para cada um:
    não crie); `provaveis` = mostre para o usuário decidir.
 2. Pesquise (fontes oficiais): bio do Instagram/SoundCloud/RA, país e UF, categoria (DJ, VJ, performance…), se produz, estilos
    (só slugs que existem na Wikidelic; na dúvida, vazio), gravadoras (slugs das que já estão no portal, em `gravadoras`;
-   selo que não está na base vai em `crew` e entra no relatório como "gravadora a cadastrar"), resumo e release, foto, capa e
+   selo que não está na base: seção "Selo novo" abaixo), resumo e release, foto, capa e
    galeria (seção "Cadastro completo"), todos os links e até 3 sets/releases recentes do SoundCloud. Sem dado confiável (só o nome no flyer): não crie perfil, fica só no line-up.
 3. `artista.py gravar perfil.json --ensaio` para ter a URL (`/dj/<slug>`…), os avisos e o `faltando` (nova rodada de busca); entra no relatório.
+
+### Selo novo (vale para artistas do line-up, modo artista e revisão)
+
+Gravadora citada pelo artista (bio, Discogs, Bandcamp, Beatport) que não está na base (`gravadora.py buscar` vazio) não fica
+só no texto: pesquise o selo na mesma rodada (seção 11: `gravadora.py selo`, logo, release, links) e ponha no relatório como
+**GRAVADORAS NOVAS** (ficha de 2 linhas cada), com os artistas que ficariam ligados. Na pergunta única entram como opção à parte.
+Escolhida: grave **a gravadora primeiro** (`gravadora.py gravar`, pendente) e depois o artista com o slug novo em `gravadoras`
+(perfil novo: `artista.py gravar`; perfil publicado: `artista.py propor` com a lista completa). Com a gravadora ainda pendente,
+o script põe o nome dela no `crew` sozinho: no site sai como texto e vira link quando a gravadora for aprovada.
+Selo sem fonte confiável (só o nome) ou fora da cena: não cadastre; fica no `crew` e entra nas notas.
 
 ## 10. Modo artista
 
@@ -263,11 +273,14 @@ Fora da cultura psicodélica/trance: não grave. Telefone/WhatsApp só se for o 
 ## 14. Revisar a base
 
 `revisar.py resumo` (contagem de tudo) ou o tema: `vinculos [--todos]`, `gravadoras`, `duplicatas`, `incompletos` (perfis, eventos e
-lojas/serviços sem tag, logo, resumo ou cidade), `links [--limite N]` (site, SoundCloud, Spotify, Bandcamp, YouTube), `estilos`. Só lê. Mostre o relatório com contagem e exemplos (links do site/CMS) e pergunte o que corrigir:
+lojas/serviços sem tag, logo, resumo ou cidade; gravadoras sem logo, release, país, estilos, descrição ou links), `links [--limite N]` (site, SoundCloud, Spotify, Bandcamp, YouTube), `estilos`. Só lê. Mostre o relatório com contagem e exemplos (links do site/CMS) e pergunte o que corrigir:
 - **Vínculos** (evento ↔ artista): lote aprovado no relatório → JSON `[{"evento": id, "adicionar": [slugs]}]` e
   `revisar.py aplicar vinculos <arquivo>` (`"remover": [slugs]` tira vínculo errado de `vinculados_fora_do_lineup`); cada evento vira
   uma proposta na Moderação (não altera o publicado). `provaveis` (nome achado no meio do texto) só com confirmação item a item.
-- **Gravadoras dos artistas**: lote aprovado → `artista.py propor <slug>` com a lista completa.
+- **Gravadoras dos artistas**: lote aprovado → `artista.py propor <slug>` com a lista completa. Selo citado que não existe na base:
+  "Selo novo" (seção 9).
+- **Gravadoras incompletas** (`incompletos`: sem logo, release, país, estilos, descrição do Google ou nenhum link): pesquise
+  (`gravadora.py selo`, site, Bandcamp, Instagram) e proponha os campos com `gravadora.py propor <slug>`.
 - **O resto** (duplicata, dado incompleto, link, estilo, série): proposta item por item (`propor`) ou ajuste indicado no CMS.
   Duplicata = proposta de mesclagem no relatório (qual fica, o que migra); nunca apague.
 

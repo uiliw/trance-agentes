@@ -139,10 +139,17 @@ def validar(e):
     # gravadoras do portal (slugs): link no perfil e o artista na página da gravadora; selo que não existe vai no crew
     grav = list(dict.fromkeys(str(x).strip() for x in (e.get("gravadoras") or []) if str(x).strip()))
     if grav:
-        achadas = {g["slug"] for g in rest("GET", "gravadoras?select=slug&slug=in.(" + ",".join(f'"{x}"' for x in grav) + ")").json()}
+        achadas = {g["slug"]: g for g in rest("GET", "gravadoras?select=slug,nome,status&slug=in.(" + ",".join(f'"{x}"' for x in grav) + ")").json()}
         faltam = [x for x in grav if x not in achadas]
         if faltam:
-            raise Erro("gravadoras que não existem na base (escreva no crew e avise no relatório): " + ", ".join(faltam))
+            raise Erro("gravadoras que não existem na base (cadastre com gravadora.py gravar antes, ou escreva no crew): " + ", ".join(faltam))
+        # gravadora ainda pendente (ex.: cadastrada agora pelo agente): o site só liga a publicada, então o nome vai também no
+        # crew e aparece como texto até a aprovação (depois vira link e o crew repetido some, _pf_crew)
+        for g in achadas.values():
+            if g["status"] != "publicado":
+                if norm(g["nome"]) not in norm(d["crew"]):
+                    d["crew"] = ", ".join(x for x in (d["crew"], g["nome"]) if x)[:200]
+                avisos.append(f"Gravadora {g['nome']} ainda {g['status']}: no site sai como texto até ser aprovada na Moderação.")
     d["gravadoras"] = grav
     est = [str(x).strip() for x in (e.get("estilos") or []) if str(x).strip()]
     if est:
@@ -288,10 +295,12 @@ def propor(slug, arquivo, ensaio=False):
         raise Erro("Nada para propor: use só os campos " + ", ".join(PROPOR))
     # valida só o que foi proposto (o resto do cadastro atual pode estar fora das regras novas, ex.: resumo antigo longo)
     base = {"nome": a["nome"], "categoria": a["categoria"], "pais": a.get("pais") or "BR", "uf": a.get("uf") or "",
-            "produtor": bool(a.get("produtor")), "fontes": e.get("fontes") or []}
+            "produtor": bool(a.get("produtor")), "crew": a.get("crew") or "", "fontes": e.get("fontes") or []}
     d, avisos = validar(base | novos)
     avisos = [x for x in avisos if not (x in ("Sem foto.", "Artista do Brasil sem UF.") and x.split()[1].lower().rstrip(".") not in novos)]
     dados = {k: d[k] for k in novos}
+    if "gravadoras" in novos and d["crew"] != (a.get("crew") or ""):  # gravadora pendente: nome no crew até a aprovação
+        dados["crew"] = d["crew"]
     if "uf" in novos:
         dados["estado"] = d["estado"]
     mudancas = {k: {"antes": a.get(k), "depois": dados[k]} for k in dados if a.get(k) != dados[k]}

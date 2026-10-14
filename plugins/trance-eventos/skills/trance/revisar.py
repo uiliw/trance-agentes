@@ -180,6 +180,8 @@ def incompletos():
     pf = [p for p in _perfis() if p["status"] == "publicado"]
     evs = [e for e in _eventos() if e["status"] == "publicado"]
     fut = [e for e in evs if (e["fim"] or e["inicio"])[:10] >= hoje]
+    gv = [g for g in tudo("gravadoras?select=slug,nome,status,logo,release,pais,estilos,seo_description,site,instagram,soundcloud,bandcamp,beatport")
+          if g["status"] == "publicado"]
     ng = [n for n in tudo("negocios?select=tipo,slug,nome,cidade,tags,logo,resumo,status") if n["status"] == "publicado"]
 
     def lst(itens, f, campos):
@@ -195,7 +197,12 @@ def incompletos():
             "perfis_sem_resumo": lst(pf, lambda p: not p.get("resumo"), ["slug", "nome"]),
             # lojas/serviços: a tag define a subpágina (/lojas/vestuario...) e o cartão da lista mostra logo, 1ª tag, cidade e resumo
             **{f"negocios_sem_{c}": _corta([{"chave": n["tipo"] + "/" + n["slug"], "nome": n["nome"]} for n in ng if not n[c]], 60)
-               for c in ("cidade", "tags", "logo", "resumo")}}
+               for c in ("cidade", "tags", "logo", "resumo")},
+            # gravadoras: logo e release na página; seo_* no Google; sem nenhum link a página fica sem saída
+            **{f"gravadoras_sem_{c}": _corta([{"slug": g["slug"], "nome": g["nome"]} for g in gv if not g[c]], 60)
+               for c in ("logo", "release", "pais", "estilos", "seo_description")},
+            "gravadoras_sem_links": _corta([{"slug": g["slug"], "nome": g["nome"]} for g in gv
+                                             if not any(g[k] for k in ("site", "instagram", "soundcloud", "bandcamp", "beatport"))], 60)}
 
 
 def links(limite=60):
