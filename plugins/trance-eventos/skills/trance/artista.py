@@ -11,6 +11,7 @@ e só vão ao ar aprovados na Moderação do CMS.
   artista.py eventos "<nome>" [--slug x] [--sem-goabase]                 # eventos do artista: base (vinculados/no line-up) + Goabase
   artista.py candidatos [--pais BR] [--goabase 20]                        # artistas sem perfil nos line-ups dos próximos eventos
   artista.py soundcloud <url>                                            # título e capa de um set/faixa (oEmbed)
+  artista.py sets <slug> <url> [<url> ...] [--release] [--ensaio]        # sets/releases para perfil que já existe (pendentes)
 
 Saída sempre em JSON (stdout); erros em stderr com código 1.
 """
@@ -31,13 +32,13 @@ from evento import (CMS, faltando, GOABASE, REF, UA, UFS, Erro, _hora_local, dup
 # categoria do banco -> caminho do perfil no site (mesmo mapa de _rota_perfil no nativo.sql)
 ROTAS = {"djs": "dj", "vjs": "vj", "foto-video": "foto-e-video", "cenografia": "cenografia", "performances": "performance",
          "artes-visionarias": "arte-visionaria", "oficinas": "oficina"}
-URLS = ["site", "instagram", "facebook", "soundcloud", "youtube", "video"]
+URLS = ["site", "instagram", "facebook", "soundcloud", "spotify", "bandcamp", "youtube", "video"]
 PERMITIDOS = {"nome", "slug", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "estilos", "resumo", "release", "foto", "capa",
               "galeria", *URLS, "fontes", "notas_agente", "sets"}
 MAX_SETS = 3
 MAX_GALERIA = 12
 # tudo o que o site mostra do perfil: o ensaio lista o que ficou vazio ("faltando")
-COMPLETO = ["estilos", "resumo", "release", "foto", "capa", "galeria", "instagram", "soundcloud", "facebook", "site", "youtube", "video"]
+COMPLETO = ["estilos", "resumo", "release", "foto", "capa", "galeria", "instagram", "soundcloud", "spotify", "bandcamp", "facebook", "site", "youtube", "video"]
 
 
 def url_perfil(p):
@@ -271,7 +272,7 @@ def vincular(evento_id, slugs, ensaio=False):
 # ---------------------------------------------------------------- proposta de alteração (perfil publicado)
 # o que o CMS aplica de uma proposta do agente (CAMPOS_PUBLICO de perfis + uf, pais e produtor; ver cms/src/lib/secoes.ts)
 PROPOR = ["nome", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "estilos", "resumo", "release", "foto", "capa", "galeria",
-          "site", "instagram", "facebook", "soundcloud", "youtube", "video"]
+          "site", "instagram", "facebook", "soundcloud", "spotify", "bandcamp", "youtube", "video"]
 
 
 def propor(slug, arquivo, ensaio=False):
@@ -308,6 +309,30 @@ def propor(slug, arquivo, ensaio=False):
              json={"tabela": "perfis", "chave": slug, "user_id": uid(), "tipo": "edicao", "dados": {k: dados[k] for k in mudancas},
                    "mensagem": str(e.get("notas_agente") or "")[:2000], "origem": "agente", "fontes": d["fontes"]}).json()[0]
     return res | {"ok": True, "id": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
+
+
+def sets(slug, links, tipo="set", ensaio=False):
+    """Sets/releases do SoundCloud para um perfil que já existe: entram pendentes (origem agente) e vão ao ar aprovados na Moderação."""
+    if not links or len(links) > MAX_SETS:
+        raise Erro(f"Mande de 1 a {MAX_SETS} links do SoundCloud.")
+    p = rest("GET", "perfis?select=slug,nome,categoria,status&slug=eq." + slug).json()
+    if not p or p[0]["status"] not in ("publicado", "pendente"):
+        raise Erro(f"Perfil {slug} não encontrado (ou recusado/despublicado).")
+    ja = {x["soundcloud"] for x in rest("GET", "sets?select=soundcloud&perfil=eq." + slug).json()}
+    novos, repetidos = [], []
+    for link in links:
+        info = soundcloud(link)
+        if info["soundcloud"] in ja:
+            repetidos.append(info["soundcloud"])
+            continue
+        novos.append({"perfil": slug, "titulo": (info["titulo"] or "Set")[:200], "tipo": tipo, "soundcloud": info["soundcloud"],
+                      "capa": info["capa"], "status": "pendente", "origem": "agente"})
+    res = {"perfil": {"slug": slug, "nome": p[0]["nome"], "site": url_perfil(p[0])}, "sets": novos, "ja_cadastrados": repetidos}
+    if ensaio or not novos:
+        return res | {"ensaio": ensaio}
+    eu()
+    gravados = [rest("POST", "sets?select=id,titulo", json=x, headers={"Prefer": "return=representation"}).json()[0] for x in novos]
+    return res | {"ok": True, "gravados": gravados, "moderacao": f"{CMS}/moderacao?origem=agente&tabela=sets&q={slug}"}
 
 
 # ---------------------------------------------------------------- eventos do artista
@@ -427,6 +452,10 @@ def main(args):
         saida(eventos(" ".join(pos), sl, "--sem-goabase" not in opc))
     elif cmd == "candidatos":
         saida(candidatos(valor("--pais") or "BR", int(valor("--goabase") or 20)))
+    elif cmd == "sets":
+        if len(pos) < 2:
+            raise Erro("Uso: sets <slug> <url> [<url> ...] [--release] [--ensaio]")
+        saida(sets(pos[0], pos[1:], "release" if "--release" in opc else "set", "--ensaio" in opc))
     elif cmd == "soundcloud":
         if not pos:
             raise Erro("Uso: soundcloud <url>")

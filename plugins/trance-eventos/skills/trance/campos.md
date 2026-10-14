@@ -74,7 +74,7 @@ O script recusa qualquer campo fora desta lista e grava sempre `status='pendente
 | `release` | texto (parágrafos com linha em branco) | Palavras próprias, pt-BR. |
 | `foto`, `capa` | `conta:…` | Ref de `evento.py imagem`. Foto quadrada de preferência. |
 | `galeria` | lista de `conta:…` (até 12) | Fotos do artista tocando, em festa, de divulgação. Sem repetir a foto/capa. |
-| `site`, `instagram`, `facebook`, `soundcloud`, `youtube`, `video` | URL | `soundcloud` = página do artista. |
+| `site`, `instagram`, `facebook`, `soundcloud`, `spotify`, `bandcamp`, `youtube`, `video` | URL | `soundcloud` = página do artista; `spotify` = open.spotify.com/artist/…; `bandcamp` = página do artista. No site viram ícones. |
 | `sets` | até 3 links (ou `{soundcloud, titulo?, tipo: set|release}`) | Faixas/sets do SoundCloud; título e capa vêm do oEmbed; entram pendentes com o perfil. |
 | `fontes` | lista de `{url, usado}` | Obrigatório. |
 | `notas_agente` | texto | O que ficou incerto. |

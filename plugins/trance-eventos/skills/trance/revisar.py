@@ -58,7 +58,7 @@ def _linhas_lineup(prog):
 
 
 def _perfis():
-    return tudo("perfis?select=slug,nome,categoria,status,pais,uf,crew,gravadoras,estilos,foto,instagram,soundcloud,site&order=slug")
+    return tudo("perfis?select=slug,nome,categoria,status,pais,uf,crew,gravadoras,estilos,foto,resumo,instagram,soundcloud,spotify,bandcamp,youtube,site&order=slug")
 
 
 def _eventos():
@@ -180,6 +180,7 @@ def incompletos():
     pf = [p for p in _perfis() if p["status"] == "publicado"]
     evs = [e for e in _eventos() if e["status"] == "publicado"]
     fut = [e for e in evs if (e["fim"] or e["inicio"])[:10] >= hoje]
+    ng = [n for n in tudo("negocios?select=tipo,slug,nome,cidade,tags,logo,resumo,status") if n["status"] == "publicado"]
 
     def lst(itens, f, campos):
         return _corta([{c: x.get(c) for c in campos} for x in itens if f(x)], 60)
@@ -191,15 +192,17 @@ def incompletos():
             "eventos_futuros_sem_mapa": lst(fut, lambda e: e["lat"] is None, ["id", "nome", "cidade"]),
             "eventos_br_sem_uf": lst(evs, lambda e: (e.get("pais_iso") or "BR") == "BR" and not e["uf"], ["id", "nome", "cidade"]),
             "eventos_datas_invertidas": lst(evs, lambda e: e["fim"] and e["fim"] < e["inicio"], ["id", "nome", "inicio", "fim"]),
-            "negocios_sem_cidade": _corta([{"chave": n["tipo"] + "/" + n["slug"], "nome": n["nome"]}
-                                          for n in tudo("negocios?select=tipo,slug,nome,cidade,status") if n["status"] == "publicado" and not n["cidade"]], 60)}
+            "perfis_sem_resumo": lst(pf, lambda p: not p.get("resumo"), ["slug", "nome"]),
+            # lojas/serviços: a tag define a subpágina (/lojas/vestuario...) e o cartão da lista mostra logo, 1ª tag, cidade e resumo
+            **{f"negocios_sem_{c}": _corta([{"chave": n["tipo"] + "/" + n["slug"], "nome": n["nome"]} for n in ng if not n[c]], 60)
+               for c in ("cidade", "tags", "logo", "resumo")}}
 
 
 def links(limite=60):
     alvos = []
     for p in _perfis():
         if p["status"] == "publicado":
-            for k in ("site", "soundcloud"):
+            for k in ("site", "soundcloud", "spotify", "bandcamp", "youtube"):
                 if (p.get(k) or "").startswith("http"):
                     alvos.append(("perfil", p["slug"], k, p[k]))
     for n in tudo("negocios?select=tipo,slug,site,status"):

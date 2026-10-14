@@ -18,6 +18,7 @@ o RLS (cms_pode_editar) decide o que pode, e o histórico do CMS registra quem g
   evento.py goabase <id|link>                              # detalhes de uma festa do Goabase (line-up, texto, flyer)
   evento.py gravar <evento.json> [--ensaio] [--passado]
   evento.py atualizar <id> <parcial.json>  # completa sugestão do agente ainda pendente (ex.: line-up que chegou depois)
+  evento.py propor <id> <parcial.json> [--ensaio]   # proposta de alteração de evento publicado (Moderação do CMS)
 
 Saída sempre em JSON (stdout); erros em stderr com código 1.
 """
@@ -361,8 +362,6 @@ def imagem(origem):
         raise Erro("Não é uma imagem válida (JPG, PNG, WebP ou GIF).")
     img = ImageOps.exif_transpose(img)
     larg_orig, alt_orig = img.size
-    if min(img.size) < 300:
-        raise Erro(f"Imagem pequena demais ({larg_orig}x{alt_orig}); procure a versão maior.")
     img.thumbnail((1920, 1920))
     img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
     for q in (86, 78, 70, 60):
@@ -379,7 +378,9 @@ def imagem(origem):
     if r.status_code >= 300:
         raise Erro(f"Falha ao guardar a imagem ({r.status_code}): {r.text[:200]}")
     return {"ref": "conta:" + caminho, "largura": img.size[0], "altura": img.size[1], "kb": round(buf.tell() / 1024),
-            "original": f"{larg_orig}x{alt_orig}"}
+            "original": f"{larg_orig}x{alt_orig}",
+            # sem tamanho mínimo: imagem pequena é aceita (melhor que nenhuma); o aviso entra no relatório
+            **({"aviso": f"Imagem pequena ({larg_orig}x{alt_orig}): se existir versão maior, prefira."} if min(larg_orig, alt_orig) < 600 else {})}
 
 
 def geocode(consulta):
@@ -743,6 +744,50 @@ def atualizar(id_, arquivo):
     return {"ok": True, "id": int(id_), "campos": sorted(mudar), "moderacao": f"{CMS}/moderacao/cadastro/eventos/{id_}"}
 
 
+# campos que o agente propõe num evento publicado (mesma lista do CMS: secoes.ts CAMPOS_AGENTE.eventos, menos artistas = vincular)
+PROPOR = ["nome", "categoria", "inicio", "fim", "local", "cidade", "uf", "pais", "pais_iso", "lat", "lng", "resumo", "release", "programacao",
+          "imagem", "flyer", "logo", *URLS]
+
+
+def propor(id_, arquivo, ensaio=False):
+    """Proposta de alteração de evento publicado (alteracoes, origem agente): só os campos enviados; aprovada na Moderação."""
+    e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
+    if not str(id_).isdigit():
+        raise Erro("Uso: propor <id> <parcial.json>")
+    atual = rest("GET", f"eventos?select=*&id=eq.{id_}").json()
+    if not atual:
+        raise Erro(f"Evento {id_} não encontrado.")
+    a = atual[0]
+    if a["status"] != "publicado":
+        raise Erro("Evento não publicado: sugestão pendente do agente se completa com 'atualizar'; o resto se edita no CMS.")
+    novos = {k: v for k, v in e.items() if k in PROPOR}
+    if not novos:
+        raise Erro("Nada para propor: use só os campos " + ", ".join(PROPOR) + " (line-up ligado: artista.py vincular).")
+    # valida só o que foi proposto (o resto do cadastro atual pode estar fora das regras novas)
+    base = {k: a.get(k) for k in ("nome", "categoria", "inicio", "fim", "local", "cidade", "uf", "pais", "pais_iso", "lat", "lng")}
+    d, avisos = validar(base | novos | {"fontes": e.get("fontes") or [{"url": "https://www.trance.com.br"}]}, passado=True)
+    avisos = [x for x in avisos if not (x == "Sem imagem de capa." and "imagem" not in novos) and not (x == "Evento no Brasil sem UF." and "uf" not in novos)]
+    # estado e pais por extenso: o banco escreve sozinho a partir de uf/pais_iso (gatilho regiao_sincroniza)
+    dados = {k: d[k] for k in novos}
+    mudancas = {k: {"antes": a.get(k), "depois": dados[k]} for k in dados if a.get(k) != dados[k]}
+    if not mudancas:
+        raise Erro("Os valores propostos são iguais aos atuais.")
+    if "categoria" in mudancas:
+        avisos.append(f"Mudar a categoria muda o endereço para /{ROTA_TIPO[dados['categoria']]}/{a['slug']} (a Moderação confere o 301).")
+    res = {"evento": {"id": int(id_), "nome": a["nome"], "site": f"https://www.trance.com.br/{a['rota']}/{a['slug']}"}, "mudancas": mudancas,
+           "faltando": faltando(a | dados, COMPLETO), "avisos": avisos}
+    if ensaio:
+        return res | {"ensaio": True}
+    eu()
+    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente").json()
+    if pend:
+        raise Erro(f"Já há uma proposta em análise para o evento {id_} (#{pend[0]['id']}, {pend[0]['origem']}): aguarde a Moderação.")
+    r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
+             json={"tabela": "eventos", "chave": str(id_), "user_id": uid(), "tipo": "edicao", "dados": {k: dados[k] for k in mudancas},
+                   "mensagem": str(e.get("notas_agente") or "")[:2000], "origem": "agente", "fontes": d["fontes"] if e.get("fontes") else []}).json()[0]
+    return res | {"ok": True, "id": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
+
+
 # ---------------------------------------------------------------- linha de comando
 def main(args):
     if not args or args[0] in ("-h", "--help", "ajuda"):
@@ -803,6 +848,10 @@ def main(args):
         if len(pos) < 2:
             raise Erro("Uso: atualizar <id> <parcial.json|->")
         saida(atualizar(pos[0], pos[1]))
+    elif cmd == "propor":
+        if len(pos) < 2:
+            raise Erro("Uso: propor <id> <parcial.json|-> [--ensaio]")
+        saida(propor(pos[0], pos[1], "--ensaio" in opc))
     elif cmd == "gravar":
         if not pos:
             raise Erro("Uso: gravar <evento.json|-> [--ensaio] [--passado]")

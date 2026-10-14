@@ -44,8 +44,8 @@ Todo cadastro ou proposta sai com **todos os campos preenchidos** que existirem 
    | Loja/serviço | `logo`, `capa` | Instagram, site, Facebook, Google Maps (foto da fachada/do estande publicada pelo próprio negócio) |
 
    Galeria e capa não podem repetir a foto. Nada de banco de imagens, foto de outro artista ou flyer de evento de terceiros na galeria.
-3. **Links todos**: site, Instagram, Facebook, SoundCloud, YouTube, vídeo em destaque, Bandcamp/Beatport (selo), ingresso (evento).
-   Procure um por um ("<nome> instagram", "<nome> soundcloud", "<nome> facebook", "<nome> youtube"), e siga os links da bio/rodapé
+3. **Links todos**: site, Instagram, Facebook, SoundCloud, Spotify e Bandcamp (artista; Spotify = página open.spotify.com/artist/…), YouTube, vídeo em destaque, Bandcamp/Beatport (selo), ingresso (evento).
+   Procure um por um ("<nome> instagram", "<nome> soundcloud", "<nome> facebook", "<nome> spotify", "<nome> bandcamp", "<nome> youtube"), e siga os links da bio/rodapé
    do site, Linktree e do SoundCloud: costumam listar todos.
 4. **Rodada do que falta**: o ensaio (`gravar … --ensaio`, `propor … --ensaio`) devolve `faltando`. Lista não vazia = mais uma
    rodada de busca só para esses campos antes do relatório. O que mesmo assim não existir vai em `notas_agente`
@@ -100,7 +100,7 @@ python3 <pasta-da-skill>/evento.py lineup "Artista 1" "Artista 2" ...
 
 ## 4. Imagens
 
-Procure sempre as três e grave cada uma que encontrar (fonte oficial; nada de banco de imagens; maior versão, ≥ 1000 px):
+Procure sempre as três e grave cada uma que encontrar (fonte oficial; nada de banco de imagens; a maior versão que existir: não há tamanho mínimo, mas `aviso` de imagem pequena vai para o relatório):
 
 | Campo | O que é | Onde achar |
 |---|---|---|
@@ -172,6 +172,10 @@ Diga que perfis novos devem ser aprovados **antes ou junto** do evento para o v�
 Dado que chegou depois (line-up, horário, flyer) numa sugestão do agente ainda pendente: JSON só com os campos novos e
 `python3 <pasta-da-skill>/evento.py atualizar <id> /caminho/parcial.json` (fontes novas somam às antigas; `notas_agente` é substituída).
 
+Evento **já publicado** (data mudou, saiu o flyer, line-up novo, ingresso): proposta na Moderação com só os campos que mudam:
+`python3 <pasta-da-skill>/evento.py propor <id> /caminho/parcial.json [--ensaio]` (o ensaio mostra antes → depois e o `faltando`;
+mudar a categoria muda o endereço). Line-up ligado a perfis = `artista.py vincular`. Já há proposta em análise: espere a Moderação.
+
 ## 8. Modo buscar
 
 Uso: `/trance buscar [brasil|america-latina|europa|asia-oceania|africa|mundo] [90d|180d|AAAA-MM..AAAA-MM]`.
@@ -219,7 +223,11 @@ nome; o usuário pode pedir o próximo lote). Para cada um:
 ```bash
 python3 <pasta-da-skill>/artista.py gravar /caminho/perfil.json [--ensaio]
 python3 <pasta-da-skill>/artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]   # proposta de eventos.artistas
+python3 <pasta-da-skill>/artista.py sets <slug> <url> [<url> ...] [--release] [--ensaio]   # até 3 sets/releases do SoundCloud em perfil que já existe
 ```
+
+Perfil existente sem sets (ou com sets antigos): ofereça os 3 mais recentes do SoundCloud dele com `artista.py sets` (entram
+pendentes; os já cadastrados voltam em `ja_cadastrados`).
 
 Vínculo (evento ↔ artista) vale em lote, aprovado na pergunta do relatório. Evento publicado: vira **proposta** na Moderação
 (alteracoes, origem agente; um humano aprova); sugestão do próprio agente ainda pendente: é completada. Nunca edita o publicado
@@ -240,6 +248,8 @@ direto. Já há proposta em análise para o evento: avise e espere a Moderação
 `negocio.py buscar "<nome>" --instagram @x --site url` → existe = `negocio.py propor <loja|servico>/<slug> parcial.json`; senão
 pesquise (site, Instagram, Google Maps), escolha `tipo` (loja | servico) e `tags` só da lista (`negocio.py tags`), cidade/UF/país,
 logo e capa, resumo e release sem tom de anúncio, todos os links; `negocio.py gravar negocio.json --ensaio` (URL `/loja/<slug>` ou `/servico/<slug>`).
+As `tags` definem em quais subpáginas o negócio aparece (/lojas/vestuario, /terapias-holisticas…) e a 1ª tag sai no cartão da lista:
+ponha a principal primeiro.
 Fora da cultura psicodélica/trance: não grave. Telefone/WhatsApp só se for o canal público.
 
 ## 13. Buscar artistas, gravadoras, lojas e serviços
@@ -252,8 +262,8 @@ Fora da cultura psicodélica/trance: não grave. Telefone/WhatsApp só se for o 
 
 ## 14. Revisar a base
 
-`revisar.py resumo` (contagem de tudo) ou o tema: `vinculos [--todos]`, `gravadoras`, `duplicatas`, `incompletos`, `links [--limite N]`,
-`estilos`. Só lê. Mostre o relatório com contagem e exemplos (links do site/CMS) e pergunte o que corrigir:
+`revisar.py resumo` (contagem de tudo) ou o tema: `vinculos [--todos]`, `gravadoras`, `duplicatas`, `incompletos` (perfis, eventos e
+lojas/serviços sem tag, logo, resumo ou cidade), `links [--limite N]` (site, SoundCloud, Spotify, Bandcamp, YouTube), `estilos`. Só lê. Mostre o relatório com contagem e exemplos (links do site/CMS) e pergunte o que corrigir:
 - **Vínculos** (evento ↔ artista): lote aprovado no relatório → JSON `[{"evento": id, "adicionar": [slugs]}]` e
   `revisar.py aplicar vinculos <arquivo>` (`"remover": [slugs]` tira vínculo errado de `vinculados_fora_do_lineup`); cada evento vira
   uma proposta na Moderação (não altera o publicado). `provaveis` (nome achado no meio do texto) só com confirmação item a item.
