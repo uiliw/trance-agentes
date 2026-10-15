@@ -34,7 +34,7 @@ def validar(e):
     d = {}
     if "intro" in e:
         t = str(e.get("intro") or "").strip()
-        d["intro"] = t if t.startswith("<") else paragrafos(t)  # HTML passa pela sanitização do CMS na aprovação
+        d["intro"] = paragrafos(t)  # HTML vira texto antes (evento.paragrafos)
     for k, lim in (("seo_title", 60), ("seo_description", 158)):
         if k in e:
             d[k] = re.sub(r"\s+", " ", str(e.get(k) or "")).strip()

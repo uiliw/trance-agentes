@@ -517,7 +517,13 @@ def faltando(d, campos):
 
 
 def paragrafos(texto):
-    """Texto puro -> HTML do CMS (só p/br), escapado. Parágrafos separados por linha em branco."""
+    """Texto puro -> HTML do CMS (só p/br), escapado. Parágrafos separados por linha em branco.
+    Veio HTML (o modelo às vezes manda <p>...</p>): vira texto antes, senão as tags saíam escapadas no site (2026-10-15)."""
+    texto = str(texto or "")
+    if re.search(r"</?(p|br|div|li|ul|ol|strong|em|b|i|a)\b[^>]*>", texto, re.I):
+        texto = re.sub(r"<br\s*/?>", "\n", texto, flags=re.I)
+        texto = re.sub(r"</(p|div|ul|ol)>|<li\b[^>]*>", "\n\n", texto, flags=re.I)
+        texto = html.unescape(re.sub(r"<[^>]+>", "", texto))
     blocos = [b.strip() for b in re.split(r"\n\s*\n", str(texto or "").strip()) if b.strip()]
     return "".join("<p>" + "<br>".join(html.escape(l.strip(), quote=False) for l in b.splitlines() if l.strip()) + "</p>" for b in blocos)
 
