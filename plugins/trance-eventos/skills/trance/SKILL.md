@@ -10,7 +10,7 @@ Moderação do CMS: nada vai ao ar sem um humano aprovar lá. Plano: `cms/PLANO-
 
 Ferramentas (saída JSON), em `<pasta-da-skill>` = o "Base directory for this skill" mostrado ao abrir a skill:
 `evento.py` (eventos, imagens, Instagram, geocode, Goabase, login), `artista.py` (perfis, vínculos, propostas), `gravadora.py`
-(selos, Discogs), `negocio.py` (lojas e serviços) e `revisar.py` (auditoria da base). Todos com `--help`.
+(selos, Discogs), `negocio.py` (lojas e serviços), `regiao.py` (textos das páginas de região) e `revisar.py` (auditoria da base). Todos com `--help`.
 Campos e exemplos: [campos.md](campos.md). No Windows, se `python3` não existir, use `python` (ou `py`).
 Falta `requests`/`Pillow`: `pip install -r <pasta-da-skill>/requirements.txt` (versões fixas; não instale sem versão).
 
@@ -23,6 +23,7 @@ Falta `requests`/`Pillow`: `pip install -r <pasta-da-skill>/requirements.txt` (v
 | buscar eventos | `buscar [região] [período]` | 8 |
 | gravadora | nome, site ou Bandcamp de selo | 11 |
 | loja ou serviço | nome, @ ou site | 12 |
+| região | textos de /regiao/<slug> (estados, regiões, países) | 12b |
 | buscar artistas / gravadoras / lojas e serviços | `buscar artistas brasil`, `buscar gravadoras brasil ativas desde 2023` | 13 |
 | revisar | `revise os vínculos…`, `revise as gravadoras dos artistas`, `revise duplicatas` | 14 |
 
@@ -261,6 +262,14 @@ logo e capa, resumo e release sem tom de anúncio, todos os links; `negocio.py g
 As `tags` definem em quais subpáginas o negócio aparece (/lojas/vestuario, /terapias-holisticas…) e a 1ª tag sai no cartão da lista:
 ponha a principal primeiro.
 Fora da cultura psicodélica/trance: não grave. Telefone/WhatsApp só se for o canal público.
+
+## 12b. Região (texto da página /regiao/<slug>)
+
+Região não tem status nem dono (sempre no ar): nunca grave direto, só proposta na Moderação. `regiao.py listar --nivel uf --vazias`
+mostra o que falta (e quem já tem proposta pendente: uma por região). Campos: `intro` (cena local, festivais marcantes, como chegar;
+texto puro com parágrafos por linha em branco), `seo_title` (até 60), `seo_description` (até 158), `fontes`, `notas_agente`.
+Várias de uma vez: `regiao.py lote regioes.json --ensaio` (`{"acre": {...}, ...}`), mostre o relatório e grave sem `--ensaio`;
+aprovam em lote na Moderação (filtro Região + Agente). Não invente festivais nem datas: só o que a fonte confirma.
 
 ## 13. Buscar artistas, gravadoras, lojas e serviços
 
