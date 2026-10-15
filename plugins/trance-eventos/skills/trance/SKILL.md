@@ -5,6 +5,8 @@ description: Agente do Trance.com.br (/trance). Cadastra e atualiza eventos, art
 
 # Agente do Trance (/trance)
 
+**Fale sempre em português do Brasil** (relatórios, perguntas, avisos e resumos), mesmo que a fonte ou a saída das ferramentas esteja em outra língua.
+
 Pesquisa, mostra **relatório** e só grava depois da escolha do usuário. Tudo entra como **pendente** (`origem='agente'`) na
 Moderação do CMS: nada vai ao ar sem um humano aprovar lá. Plano: `cms/PLANO-AGENTE-TRANCE.md` (fase 1 = eventos + artistas).
 
@@ -270,6 +272,11 @@ mostra o que falta (e quem já tem proposta pendente: uma por região). Campos: 
 texto puro com parágrafos por linha em branco), `seo_title` (até 60), `seo_description` (até 158), `fontes`, `notas_agente`.
 Várias de uma vez: `regiao.py lote regioes.json --ensaio` (`{"acre": {...}, ...}`), mostre o relatório e grave sem `--ensaio`;
 aprovam em lote na Moderação (filtro Região + Agente). Não invente festivais nem datas: só o que a fonte confirma.
+As regiões são uma **lista fixa** (Brasil, regiões, estados, continentes e os países do banco): o CMS só edita o texto, **não cria
+região**. País fora da lista (`regiao.py` responde "não existe"): não mande o usuário criar no CMS nem fique tentando de novo;
+diga que o Willy precisa incluir o país no banco e guarde o texto. A página `/regiao/<slug>` só existe com 3 ou mais cadastros
+publicados (`tem_pagina`/`cadastros` no `listar` e no `propor`): sem página, a proposta pode ir mesmo assim (avise que entra no ar quando
+a página existir); 404 no site não quer dizer que a região falta no banco.
 
 ## 13. Buscar artistas, gravadoras, lojas e serviços
 

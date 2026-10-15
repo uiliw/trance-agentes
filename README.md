@@ -2,13 +2,18 @@
 
 O agente do Trance.com.br cadastra e atualiza **eventos, artistas, gravadoras, lojas, serviços e os textos das regiões**, liga eventos aos artistas e artistas às gravadoras, busca o que ainda falta no portal e revisa a base. Antes de gravar, sempre mostra um relatório com os dados como vão ficar e pergunta o que gravar. Tudo vai como sugestão para a Moderação do CMS, em seu nome: nada vai ao ar sem aprovação.
 
-Versão 1.9.1 · Mac ou Windows · Claude Desktop (aba Code) ou terminal · Python 3 · Conta do CMS com app autenticador
+Versão 1.9.2 · Mac ou Windows · Claude Desktop (aba Code) ou terminal · Python 3 · Conta do CMS com app autenticador
 
-> Saiu a versão **1.9.1** (15/10/2026). Atualize (último passo da instalação) e abra uma sessão nova. O que mudou está na aba Novidades.
+> Saiu a versão **1.9.2** (15/10/2026). Atualize (último passo da instalação) e abra uma sessão nova. O que mudou está na aba Novidades.
 
 ## Novidades
 
 O que entrou desde a versão 1.4.0. Para receber, atualize o plugin (passo a passo).
+
+### 1.9.2 — 15/10/2026 · correção
+
+- **Sempre em português:** o agente às vezes respondia em inglês; agora relatórios, perguntas e avisos saem sempre em português.
+- **Região que não existe (ex.: Chipre):** as regiões são uma lista fixa e o CMS só edita o texto, não cria região nova. O agente agora explica isso logo (em vez de pedir para criar no CMS) e mostra quantos cadastros cada região tem: a página /regiao/… só aparece com 3 ou mais cadastros publicados.
 
 ### 1.9.1 — 15/10/2026 · correção
 
@@ -168,7 +173,7 @@ Na caixa de mensagem da aba Code, um comando por vez.
 /reload-plugins
 ```
 
-Ou abra uma sessão nova. Para conferir a versão: `/plugin` › aba **Installed** › `trance-eventos` (a atual é a **1.9.1**).
+Ou abra uma sessão nova. Para conferir a versão: `/plugin` › aba **Installed** › `trance-eventos` (a atual é a **1.9.2**).
 
 **Continuou na versão antiga?** Reinstale (o login no CMS continua valendo):
 

@@ -6,7 +6,9 @@
   regiao.py lote <regioes.json|-> [--ensaio]                         # várias: {"<slug>": {parcial}, ...} ou [{"slug": ..., ...}]
 
 Região não tem status nem dono (está sempre no ar): o agente nunca grava direto, só propõe em `alteracoes`
-(tabela 'regioes'). Campos: intro (texto puro, parágrafos por linha em branco; ou HTML p/br/strong/em/a/ul/ol/li),
+(tabela 'regioes'). As regiões são uma lista fixa (duda/supabase/schema.sql): o CMS só edita texto, não cria região.
+A página /regiao/<slug> só existe com 3 ou mais cadastros publicados (`tem_pagina`); o texto proposto antes fica guardado.
+Campos: intro (texto puro, parágrafos por linha em branco; ou HTML p/br/strong/em/a/ul/ol/li),
 seo_title (até 60), seo_description (até 158), fontes, notas_agente. Saída em JSON.
 """
 import json
@@ -21,6 +23,13 @@ from evento import CMS, Erro, eu, faltando, paragrafos, rest, saida, tudo, uid
 SITE = "https://www.trance.com.br/regiao/"
 PROPOR = ["intro", "seo_title", "seo_description"]
 PERMITIDOS = {"slug", *PROPOR, "fontes", "notas_agente"}
+FIXAS = ("Região {slug} não existe: as regiões são uma lista fixa (países incluídos pela equipe no banco, não pelo CMS). "
+         "Peça ao Willy para incluir o país; a página /regiao/<slug> só aparece com 3 ou mais cadastros publicados.")
+
+
+def contagem(slug=""):
+    q = "regioes_contagem?select=slug,nivel,total" + ("&slug=eq." + slug if slug else "")
+    return {c["slug"]: (c["total"] or 0, c["nivel"] == "raiz" or (c["total"] or 0) >= 3) for c in tudo(q)}
 
 
 def _ler(arquivo):
@@ -49,12 +58,14 @@ def listar(nivel="", vazias=False):
     if nivel:
         q += "&nivel=eq." + nivel
     pend = {a["chave"] for a in tudo("alteracoes?select=chave&tabela=eq.regioes&status=eq.pendente")}
+    cont = contagem()
     out = []
     for r in tudo(q):
         falta = faltando(r, PROPOR)
         if vazias and not falta:
             continue
         out.append({"slug": r["slug"], "nome": r["nome"], "nivel": r["nivel"], "pai": r["pai"], "faltando": falta,
+                    "cadastros": cont.get(r["slug"], (0, False))[0], "tem_pagina": cont.get(r["slug"], (0, False))[1],
                     "proposta_pendente": r["slug"] in pend, "intro_atual": (r.get("intro") or "")[:200]})
     return {"total": len(out), "regioes": out}
 
@@ -62,7 +73,7 @@ def listar(nivel="", vazias=False):
 def propor(slug, e, ensaio=False, pendentes=None):
     atual = rest("GET", "regioes?select=*&slug=eq." + slug).json()
     if not atual:
-        raise Erro(f"Região {slug} não existe.")
+        raise Erro(FIXAS.format(slug=slug))
     a = atual[0]
     d, fontes = validar({k: v for k, v in e.items() if k != "slug"})
     mud = {k: {"antes": a.get(k) or "", "depois": d[k]} for k in d if (a.get(k) or "") != d[k]}
@@ -72,8 +83,12 @@ def propor(slug, e, ensaio=False, pendentes=None):
         pendentes = {x["chave"] for x in rest("GET", f"alteracoes?select=chave&tabela=eq.regioes&status=eq.pendente&chave=eq.{slug}").json()}
     if slug in pendentes:
         raise Erro(f"{slug}: já tem proposta pendente na Moderação (uma por região).")
-    res = {"regiao": {"slug": slug, "nome": a["nome"], "nivel": a["nivel"], "site": SITE + slug}, "mudancas": mud,
-           "faltando": faltando(a | {k: d[k] for k in mud}, PROPOR)}
+    total, pagina = contagem(slug).get(slug, (0, False))
+    res = {"regiao": {"slug": slug, "nome": a["nome"], "nivel": a["nivel"], "site": SITE + slug, "cadastros": total, "tem_pagina": pagina},
+           "mudancas": mud, "faltando": faltando(a | {k: d[k] for k in mud}, PROPOR)}
+    if not pagina:
+        res["aviso"] = (f"{SITE}{slug} ainda não existe ({total} cadastro(s) publicado(s); a página aparece com 3). "
+                        "O texto fica guardado e entra no ar quando a página existir.")
     if ensaio:
         return res | {"ensaio": True}
     r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
