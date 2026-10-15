@@ -272,9 +272,9 @@ mostra o que falta (e quem já tem proposta pendente: uma por região). Campos: 
 texto puro com parágrafos por linha em branco), `seo_title` (até 60), `seo_description` (até 158), `fontes`, `notas_agente`.
 Várias de uma vez: `regiao.py lote regioes.json --ensaio` (`{"acre": {...}, ...}`), mostre o relatório e grave sem `--ensaio`;
 aprovam em lote na Moderação (filtro Região + Agente). Não invente festivais nem datas: só o que a fonte confirma.
-As regiões são uma **lista fixa** (Brasil, regiões, estados, continentes e os países do banco): o CMS só edita o texto, **não cria
-região**. País fora da lista (`regiao.py` responde "não existe"): não mande o usuário criar no CMS nem fique tentando de novo;
-diga que o Willy precisa incluir o país no banco e guarde o texto. A página `/regiao/<slug>` só existe com 3 ou mais cadastros
+As regiões são fixas (Brasil, regiões, estados, continentes), menos **país**: só um administrador cria, no CMS em
+**Cena › Novo país** (nome, código ISO-2, continente). País fora da lista (`regiao.py` responde "não existe"): não fique tentando de
+novo; diga isso ao usuário (se não for admin, peça a um) e guarde o texto para propor depois que o país existir. A página `/regiao/<slug>` só existe com 3 ou mais cadastros
 publicados (`tem_pagina`/`cadastros` no `listar` e no `propor`): sem página, a proposta pode ir mesmo assim (avise que entra no ar quando
 a página existir); 404 no site não quer dizer que a região falta no banco.
 

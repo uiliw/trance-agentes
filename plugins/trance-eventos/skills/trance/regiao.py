@@ -6,7 +6,7 @@
   regiao.py lote <regioes.json|-> [--ensaio]                         # várias: {"<slug>": {parcial}, ...} ou [{"slug": ..., ...}]
 
 Região não tem status nem dono (está sempre no ar): o agente nunca grava direto, só propõe em `alteracoes`
-(tabela 'regioes'). As regiões são uma lista fixa (duda/supabase/schema.sql): o CMS só edita texto, não cria região.
+(tabela 'regioes'). As regiões são fixas (duda/supabase/schema.sql), menos país: admin cria em Cena › Novo país no CMS.
 A página /regiao/<slug> só existe com 3 ou mais cadastros publicados (`tem_pagina`); o texto proposto antes fica guardado.
 Campos: intro (texto puro, parágrafos por linha em branco; ou HTML p/br/strong/em/a/ul/ol/li),
 seo_title (até 60), seo_description (até 158), fontes, notas_agente. Saída em JSON.
@@ -23,8 +23,8 @@ from evento import CMS, Erro, eu, faltando, paragrafos, rest, saida, tudo, uid
 SITE = "https://www.trance.com.br/regiao/"
 PROPOR = ["intro", "seo_title", "seo_description"]
 PERMITIDOS = {"slug", *PROPOR, "fontes", "notas_agente"}
-FIXAS = ("Região {slug} não existe: as regiões são uma lista fixa (países incluídos pela equipe no banco, não pelo CMS). "
-         "Peça ao Willy para incluir o país; a página /regiao/<slug> só aparece com 3 ou mais cadastros publicados.")
+FIXAS = ("Região {slug} não existe. País novo só um administrador cria, no CMS em Cena › Novo país (nome, código ISO-2 e "
+         "continente); a página /regiao/<slug> só aparece com 3 ou mais cadastros publicados.")
 
 
 def contagem(slug=""):
