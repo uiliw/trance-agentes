@@ -1,6 +1,6 @@
 # Agente /trance
 
-O agente do Trance.com.br cadastra e atualiza **eventos, artistas, gravadoras, lojas, serviços e os textos das regiões**, liga eventos aos artistas e artistas às gravadoras, busca o que ainda falta no portal e revisa a base. Antes de gravar, sempre mostra um relatório com os dados como vão ficar e pergunta o que gravar e como: **publicar direto** no site ou **deixar na Moderação** do CMS. Tudo fica gravado em seu nome.
+O agente do Trance.com.br cadastra e atualiza **eventos, artistas, gravadoras, crews, lojas, serviços e os textos das regiões**, liga eventos aos artistas e às crews e artistas às gravadoras, busca o que ainda falta no portal e revisa a base. Antes de gravar, sempre mostra um relatório com os dados como vão ficar e pergunta o que gravar e como: **publicar direto** no site ou **deixar na Moderação** do CMS. Tudo fica gravado em seu nome.
 
 Versão 2.1.0 · Mac ou Windows · Claude Desktop (aba Code) ou terminal · Python 3 · Conta do CMS com app autenticador
 
