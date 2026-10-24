@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Ferramentas do agente /trance, parte de artistas (perfis da cena). Plano: cms/PLANO-AGENTE-TRANCE.md (repo trance.local).
 
-Mesma sessão e regras do evento.py (sessão da pessoa da equipe, nunca chave secreta): perfis entram como pendente/agente
-e só vão ao ar aprovados na Moderação do CMS.
+Mesma sessão e regras do evento.py (sessão da pessoa da equipe, nunca chave secreta): por padrão perfis entram como
+pendente/agente e vão ao ar aprovados na Moderação do CMS; com --publicar ("Publicar direto", escolha do usuário) vão ao ar já.
 
   artista.py buscar "<nome>" [--instagram @x|url] [--soundcloud url]   # existentes / prováveis na base
-  artista.py gravar <perfil.json|-> [--ensaio]                           # perfil novo pendente (+ até 3 sets do SoundCloud)
-  artista.py vincular <evento_id> <slug> [<slug> ...] [--ensaio]         # vínculo: proposta na Moderação (publicado) ou completa a própria sugestão pendente
-  artista.py propor <slug> <parcial.json|-> [--ensaio]                   # proposta de alteração de perfil publicado (Moderação)
+  artista.py gravar <perfil.json|-> [--ensaio] [--publicar]              # perfil novo (+ até 3 sets do SoundCloud)
+  artista.py vincular <evento_id> <slug> [<slug> ...] [--remover] [--ensaio]   # evento ↔ artista direto, sem Moderação (soma ou tira)
+  artista.py gravadoras <slug> <gravadora> [<gravadora> ...] [--remover] [--ensaio]   # artista ↔ gravadora direto, sem Moderação
+  artista.py propor <slug> <parcial.json|-> [--ensaio] [--publicar]      # perfil publicado: proposta na Moderação ou edita direto
   artista.py eventos "<nome>" [--slug x] [--sem-goabase]                 # eventos do artista: base (vinculados/no line-up) + Goabase
   artista.py candidatos [--pais BR] [--goabase 20]                        # artistas sem perfil nos line-ups dos próximos eventos
   artista.py soundcloud <url>                                            # título e capa de um set/faixa (oEmbed)
-  artista.py sets <slug> <url> [<url> ...] [--release] [--ensaio]        # sets/releases para perfil que já existe (pendentes)
+  artista.py sets <slug> <url> [<url> ...] [--release] [--ensaio] [--publicar]   # sets/releases para perfil que já existe
 
 Saída sempre em JSON (stdout); erros em stderr com código 1.
 """
@@ -26,8 +27,8 @@ import requests
 import datetime as dt
 import html
 
-from evento import (CMS, faltando, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, eu, goabase_evento, mudar_artistas, norm, paragrafos, rest, saida, slugify,
-                    tudo, uid)
+from evento import (CMS, faltando, GOABASE, REF, UA, UFS, Erro, _hora_local, duplicata, editar_direto, eu, fila_imagens, goabase_evento, mudar_artistas,
+                    norm, paragrafos, rest, saida, separar_imagens, slugify, tudo, uid)
 
 # categoria do banco -> caminho do perfil no site (mesmo mapa de _rota_perfil no nativo.sql)
 ROTAS = {"djs": "dj", "vjs": "vj", "foto-video": "foto-e-video", "cenografia": "cenografia", "performances": "performance",
@@ -37,6 +38,7 @@ PERMITIDOS = {"nome", "slug", "categoria", "produtor", "pais", "uf", "gravadoras
               "galeria", *URLS, "fontes", "notas_agente", "sets"}
 MAX_SETS = 3
 MAX_GALERIA = 12
+IMAGENS = ["foto", "capa", "galeria"]  # campos que vão pela fila automática quando o agente publica direto
 # tudo o que o site mostra do perfil: o ensaio lista o que ficou vazio ("faltando")
 COMPLETO = ["estilos", "resumo", "release", "foto", "capa", "galeria", "instagram", "soundcloud", "spotify", "bandcamp", "facebook", "site", "youtube", "video"]
 
@@ -213,7 +215,7 @@ def slug_livre(base):
     return f"{base}-{n}"
 
 
-def gravar(arquivo, ensaio=False, forcar=False):
+def gravar(arquivo, ensaio=False, forcar=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     d, avisos = validar(e)
     eu()  # falha cedo se a sessão não for da equipe
@@ -231,25 +233,34 @@ def gravar(arquivo, ensaio=False, forcar=False):
         if tipo not in ("set", "release"):
             raise Erro("tipo de set: set ou release.")
         sets.append({"perfil": d["slug"], "titulo": (s.get("titulo") or info["titulo"] or "Set")[:200], "tipo": tipo,
-                     "soundcloud": info["soundcloud"], "capa": info["capa"], "status": "pendente", "origem": "agente"})
+                     "soundcloud": info["soundcloud"], "capa": info["capa"], "status": "publicado" if publicar else "pendente", "origem": "agente"})
     url = url_perfil(d)
     falta = faltando(d, COMPLETO + (["uf"] if d["pais"] == "BR" else []) + ([] if d["gravadoras"] or d["crew"] else ["gravadoras"]))
     if not sets:
         falta.append("sets")
+    fila = {}
+    if publicar:  # "Publicar direto": no ar já; foto/capa/galeria novas pela fila automática (o perfil nasce sem elas)
+        d["status"] = "publicado"
+        fila = separar_imagens(d, IMAGENS)
     if ensaio:
-        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d, "sets": sets}
+        return {"ensaio": True, "publicar": publicar, "url": url, "faltando": falta, "avisos": avisos, "imagens_na_fila": sorted(fila),
+                "registro": d | fila, "sets": sets}
     r = rest("POST", "perfis?select=slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
     gravados = []
     for s in sets:
-        gravados.append(rest("POST", "sets?select=id,titulo", json=s, headers={"Prefer": "return=representation"}).json()[0])
-    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "origem": r["origem"], "sets": gravados, "faltando": falta, "avisos": avisos,
-            "moderacao": f"{CMS}/moderacao/cadastro/perfis/{r['slug']}", "editar": f"{CMS}/artistas/{r['slug']}"}
+        gravados.append(rest("POST", "sets?select=id,titulo,status", json=s, headers={"Prefer": "return=representation"}).json()[0])
+    res = {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "origem": r["origem"], "sets": gravados, "faltando": falta, "avisos": avisos,
+           "editar": f"{CMS}/artistas/{r['slug']}"}
+    if publicar:
+        return res | fila_imagens("perfis", r["slug"], fila)
+    return res | {"moderacao": f"{CMS}/moderacao/cadastro/perfis/{r['slug']}"}
 
 
-def vincular(evento_id, slugs, ensaio=False):
-    """Soma perfis (publicados ou pendentes) em eventos.artistas. Vínculo vale em lote: aprovado no relatório do agente."""
+def vincular(evento_id, slugs, ensaio=False, remover=False):
+    """Soma (ou, com remover=True, tira) perfis em eventos.artistas, direto e sem Moderação (2026-10-23). Vínculo vale em lote,
+    mostrado no relatório do agente."""
     if not str(evento_id).isdigit():
-        raise Erro("Uso: vincular <evento_id> <slug> [<slug> ...]")
+        raise Erro("Uso: vincular <evento_id> <slug> [<slug> ...] [--remover]")
     slugs = list(dict.fromkeys(s.strip() for s in slugs if s.strip()))
     if not slugs:
         raise Erro("Informe ao menos um slug de perfil.")
@@ -257,23 +268,70 @@ def vincular(evento_id, slugs, ensaio=False):
     if not ev:
         raise Erro(f"Evento {evento_id} não encontrado.")
     ev = ev[0]
+    antes = ev["artistas"] or []
+    info = {"id": ev["id"], "nome": ev["nome"], "status": ev["status"], "site": f"https://www.trance.com.br/{ev['rota']}/{ev['slug']}"}
+    if remover:
+        fora = [s for s in slugs if s in antes]
+        res = {"evento": info, "remover": fora, "nao_vinculados": [s for s in slugs if s not in antes]}
+        if ensaio or not fora:
+            return res | {"ensaio": ensaio, "alterado": False}
+        eu()
+        return res | mudar_artistas(ev, [s for s in antes if s not in fora]) | {"ok": True, "alterado": True}
     achados = {p["slug"]: p for p in rest("GET", "perfis?select=slug,nome,categoria,status&slug=in.(" + ",".join(f'"{s}"' for s in slugs) + ")").json()}
     faltam = [s for s in slugs if s not in achados]
     if faltam:
         raise Erro("Perfis não encontrados: " + ", ".join(faltam))
-    antes = ev["artistas"] or []
     novos = [s for s in slugs if s not in antes]
-    depois = antes + novos
-    res = {"evento": {"id": ev["id"], "nome": ev["nome"], "status": ev["status"], "site": f"https://www.trance.com.br/{ev['rota']}/{ev['slug']}"},
-           "novos": [{"slug": s, "nome": achados[s]["nome"], "status": achados[s]["status"]} for s in novos],
+    res = {"evento": info, "novos": [{"slug": s, "nome": achados[s]["nome"], "status": achados[s]["status"]} for s in novos],
            "ja_vinculados": [s for s in slugs if s in antes]}
     if ensaio or not novos:
         return res | {"ensaio": ensaio, "alterado": False}
     eu()
-    feito = mudar_artistas(ev, depois, "Vínculo de artistas do line-up: " + ", ".join(novos))  # só acrescenta: direto, sem Moderação
+    feito = mudar_artistas(ev, antes + novos)
     pendentes = [n["nome"] for n in res["novos"] if n["status"] != "publicado"]
     return res | feito | {"ok": True, "alterado": True,
-                  "aviso": ("Aparecem no site quando os perfis forem aprovados: " + ", ".join(pendentes)) if pendentes else ""}
+                          "aviso": ("Aparecem no site quando os perfis forem aprovados: " + ", ".join(pendentes)) if pendentes else ""}
+
+
+def gravadoras(slug, selos, ensaio=False, remover=False):
+    """Artista ↔ gravadora (perfis.gravadoras) direto, sem Moderação (2026-10-23), em qualquer situação do perfil. Gravadora
+    ainda pendente: o nome vai também no crew (texto no site até ser aprovada; depois vira link e o crew repetido some)."""
+    selos = list(dict.fromkeys(s.strip() for s in selos if s.strip()))
+    if not selos:
+        raise Erro("Informe ao menos um slug de gravadora.")
+    p = rest("GET", "perfis?select=slug,nome,categoria,status,gravadoras,crew&slug=eq." + slug).json()
+    if not p:
+        raise Erro(f"Perfil {slug} não encontrado.")
+    p = p[0]
+    antes, crew, avisos = p["gravadoras"] or [], p.get("crew") or "", []
+    if remover:
+        mexe = [g for g in selos if g in antes]
+        depois = [g for g in antes if g not in mexe]
+        res = {"remover": mexe, "nao_vinculadas": [g for g in selos if g not in antes]}
+    else:
+        achadas = {g["slug"]: g for g in rest("GET", "gravadoras?select=slug,nome,status&slug=in.(" + ",".join(f'"{x}"' for x in selos) + ")").json()}
+        faltam = [g for g in selos if g not in achadas]
+        if faltam:
+            raise Erro("gravadoras que não existem na base (cadastre com gravadora.py gravar antes): " + ", ".join(faltam))
+        mexe = [g for g in selos if g not in antes]
+        depois = antes + mexe
+        for g in mexe:
+            if achadas[g]["status"] != "publicado":
+                if norm(achadas[g]["nome"]) not in norm(crew):
+                    crew = ", ".join(x for x in (crew, achadas[g]["nome"]) if x)[:200]
+                avisos.append(f"Gravadora {achadas[g]['nome']} ainda {achadas[g]['status']}: no site sai como texto até ser aprovada.")
+        res = {"adicionar": [{"slug": g, "nome": achadas[g]["nome"], "status": achadas[g]["status"]} for g in mexe],
+               "ja_vinculadas": [g for g in selos if g in antes]}
+    res = {"perfil": {"slug": slug, "nome": p["nome"], "status": p["status"], "site": url_perfil(p)}, "antes": antes, "depois": depois,
+           **res, "avisos": avisos}
+    if ensaio or not mexe:
+        return res | {"ensaio": ensaio, "alterado": False}
+    eu()
+    mudar = {"gravadoras": depois} | ({"crew": crew} if crew != (p.get("crew") or "") else {})
+    r = rest("PATCH", "perfis?slug=eq." + slug + "&select=slug", json=mudar, headers={"Prefer": "return=representation"}).json()
+    if not r:
+        raise Erro(f"Perfil {slug}: nada alterado.")
+    return res | {"ok": True, "alterado": True, "site_aviso": "sem Moderação: vale na hora"}
 
 
 # ---------------------------------------------------------------- proposta de alteração (perfil publicado)
@@ -282,7 +340,7 @@ PROPOR = ["nome", "categoria", "produtor", "pais", "uf", "gravadoras", "crew", "
           "site", "instagram", "facebook", "soundcloud", "spotify", "bandcamp", "youtube", "video"]
 
 
-def propor(slug, arquivo, ensaio=False):
+def propor(slug, arquivo, ensaio=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     atual = rest("GET", "perfis?select=*&slug=eq." + slug).json()
     if not atual:
@@ -308,10 +366,12 @@ def propor(slug, arquivo, ensaio=False):
         raise Erro("Os valores propostos são iguais aos atuais.")
     res = {"perfil": {"slug": slug, "nome": a["nome"], "site": url_perfil(a)}, "mudancas": mudancas,
            "faltando": faltando(a | dados, COMPLETO), "avisos": avisos}
+    if publicar:  # "Publicar direto": PATCH no perfil; foto/capa/galeria novas pela fila automática
+        return res | editar_direto("perfis", "slug=eq." + slug, slug, {k: dados[k] for k in mudancas}, IMAGENS, e.get("notas_agente"), ensaio)
     if ensaio:
         return res | {"ensaio": True}
     eu()
-    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.perfis&chave=eq.{slug}&status=eq.pendente").json()
+    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.perfis&chave=eq.{slug}&status=eq.pendente&tipo=neq.imagem").json()
     if pend:
         raise Erro(f"Já há uma proposta em análise para este perfil (#{pend[0]['id']}, {pend[0]['origem']}): aguarde a Moderação.")
     r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
@@ -320,8 +380,9 @@ def propor(slug, arquivo, ensaio=False):
     return res | {"ok": True, "id": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
 
 
-def sets(slug, links, tipo="set", ensaio=False):
-    """Sets/releases do SoundCloud para um perfil que já existe: entram pendentes (origem agente) e vão ao ar aprovados na Moderação."""
+def sets(slug, links, tipo="set", ensaio=False, publicar=False):
+    """Sets/releases do SoundCloud para um perfil que já existe: entram pendentes (origem agente) e vão ao ar aprovados na Moderação,
+    ou publicados direto (publicar=True; a capa fica na miniatura do SoundCloud, sndcdn)."""
     if not links or len(links) > MAX_SETS:
         raise Erro(f"Mande de 1 a {MAX_SETS} links do SoundCloud.")
     p = rest("GET", "perfis?select=slug,nome,categoria,status&slug=eq." + slug).json()
@@ -335,13 +396,15 @@ def sets(slug, links, tipo="set", ensaio=False):
             repetidos.append(info["soundcloud"])
             continue
         novos.append({"perfil": slug, "titulo": (info["titulo"] or "Set")[:200], "tipo": tipo, "soundcloud": info["soundcloud"],
-                      "capa": info["capa"], "status": "pendente", "origem": "agente"})
+                      "capa": info["capa"], "status": "publicado" if publicar else "pendente", "origem": "agente"})
     res = {"perfil": {"slug": slug, "nome": p[0]["nome"], "site": url_perfil(p[0])}, "sets": novos, "ja_cadastrados": repetidos}
+    if publicar and p[0]["status"] != "publicado":
+        res["aviso"] = "Perfil ainda pendente: os sets ficam publicados, mas só aparecem quando o perfil for aprovado."
     if ensaio or not novos:
-        return res | {"ensaio": ensaio}
+        return res | {"ensaio": ensaio, "publicar": publicar}
     eu()
-    gravados = [rest("POST", "sets?select=id,titulo", json=x, headers={"Prefer": "return=representation"}).json()[0] for x in novos]
-    return res | {"ok": True, "gravados": gravados, "moderacao": f"{CMS}/moderacao?origem=agente&tabela=sets&q={slug}"}
+    gravados = [rest("POST", "sets?select=id,titulo,status", json=x, headers={"Prefer": "return=representation"}).json()[0] for x in novos]
+    return res | {"ok": True, "gravados": gravados} | ({} if publicar else {"moderacao": f"{CMS}/moderacao?origem=agente&tabela=sets&q={slug}"})
 
 
 # ---------------------------------------------------------------- eventos do artista
@@ -443,16 +506,20 @@ def main(args):
         saida(buscar(" ".join(pos), valor("--instagram"), valor("--soundcloud")))
     elif cmd == "gravar":
         if not pos:
-            raise Erro("Uso: gravar <perfil.json|-> [--ensaio] [--forcar]")
-        saida(gravar(pos[0], "--ensaio" in opc, "--forcar" in opc))
+            raise Erro("Uso: gravar <perfil.json|-> [--ensaio] [--forcar] [--publicar]")
+        saida(gravar(pos[0], "--ensaio" in opc, "--forcar" in opc, "--publicar" in opc))
     elif cmd == "vincular":
         if len(pos) < 2:
-            raise Erro("Uso: vincular <evento_id> <slug> [<slug> ...] [--ensaio]")
-        saida(vincular(pos[0], pos[1:], "--ensaio" in opc))
+            raise Erro("Uso: vincular <evento_id> <slug> [<slug> ...] [--remover] [--ensaio]")
+        saida(vincular(pos[0], pos[1:], "--ensaio" in opc, "--remover" in opc))
+    elif cmd == "gravadoras":
+        if len(pos) < 2:
+            raise Erro("Uso: gravadoras <slug do perfil> <gravadora> [<gravadora> ...] [--remover] [--ensaio]")
+        saida(gravadoras(pos[0], pos[1:], "--ensaio" in opc, "--remover" in opc))
     elif cmd == "propor":
         if len(pos) < 2:
-            raise Erro("Uso: propor <slug> <parcial.json|-> [--ensaio]")
-        saida(propor(pos[0], pos[1], "--ensaio" in opc))
+            raise Erro("Uso: propor <slug> <parcial.json|-> [--ensaio] [--publicar]")
+        saida(propor(pos[0], pos[1], "--ensaio" in opc, "--publicar" in opc))
     elif cmd == "eventos":
         sl = valor("--slug")
         pos = [p for p in pos if p != sl]
@@ -463,8 +530,8 @@ def main(args):
         saida(candidatos(valor("--pais") or "BR", int(valor("--goabase") or 20)))
     elif cmd == "sets":
         if len(pos) < 2:
-            raise Erro("Uso: sets <slug> <url> [<url> ...] [--release] [--ensaio]")
-        saida(sets(pos[0], pos[1:], "release" if "--release" in opc else "set", "--ensaio" in opc))
+            raise Erro("Uso: sets <slug> <url> [<url> ...] [--release] [--ensaio] [--publicar]")
+        saida(sets(pos[0], pos[1:], "release" if "--release" in opc else "set", "--ensaio" in opc, "--publicar" in opc))
     elif cmd == "soundcloud":
         if not pos:
             raise Erro("Uso: soundcloud <url>")

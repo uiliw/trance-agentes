@@ -1,6 +1,6 @@
 # Campos do evento (`evento.py gravar`)
 
-O script recusa qualquer campo fora desta lista e grava sempre `status='pendente'` e `origem='agente'`. O endereço sai do tipo (`categoria`): Festivais → `/festival/<slug>`, Festas → `/festa/<slug>`, Feiras / Exposições → `/feira-exposicao/<slug>`, Cursos / Retiros → `/curso-retiro/<slug>` (o ensaio mostra a URL final).
+O script recusa qualquer campo fora desta lista e grava `origem='agente'` com `status='pendente'` ("Deixar na Moderação", padrão) ou `status='publicado'` com `--publicar` ("Publicar direto": as refs `conta:…` de imagem saem do registro e vão pela fila automática de imagens). O endereço sai do tipo (`categoria`): Festivais → `/festival/<slug>`, Festas → `/festa/<slug>`, Feiras / Exposições → `/feira-exposicao/<slug>`, Cursos / Retiros → `/curso-retiro/<slug>` (o ensaio mostra a URL final).
 
 | Campo | Formato | Regra |
 |---|---|---|
@@ -21,6 +21,8 @@ O script recusa qualquer campo fora desta lista e grava sempre `status='pendente
 | `pais` | texto | Em português (`Brasil`, `Portugal`, `Grécia`). Padrão `Brasil`. |
 | `lat`, `lng` | número | Do site/mapa oficial ou `evento.py geocode` conferido. |
 | `site`, `instagram`, `facebook`, `youtube`, `video`, `ingresso` | URL http(s) | Oficiais. `video` = aftermovie/teaser no YouTube. `instagram` = perfil do evento (não o post). |
+| `crews` | lista de slugs | Crews que organizam ou se apresentam no evento (`crew.py buscar`); o evento aparece na página da crew. Slug que não existe = erro. Evento já publicado: `crew.py vincular <crew> eventos <id>` (direto). |
+| `servicos` | lista de slugs | Serviços no evento (negócios tipo `servico`: soundsystem, infraestrutura, alimentação, tenda de cura…; `negocio.py buscar`). Aparecem na página do evento, agrupados pela 1ª tag. Evento já publicado: `evento.py servicos <id> <slug>` (direto). |
 | `fontes` | lista `{url, usado}` | **Obrigatório.** Toda URL usada e o que veio dela (`"datas, local e line-up"`). |
 | `notas_agente` | texto | O que ficou incerto ou deduzido, artistas sem perfil, avisos para quem vai aprovar. |
 
@@ -75,7 +77,7 @@ O script recusa qualquer campo fora desta lista e grava sempre `status='pendente
 | `foto`, `capa` | `conta:…` | Ref de `evento.py imagem`. Foto quadrada de preferência. |
 | `galeria` | lista de `conta:…` (até 12) | Fotos do artista tocando, em festa, de divulgação. Sem repetir a foto/capa. |
 | `site`, `instagram`, `facebook`, `soundcloud`, `spotify`, `bandcamp`, `youtube`, `video` | URL | `soundcloud` = página do artista; `spotify` = open.spotify.com/artist/…; `bandcamp` = página do artista. No site viram ícones. |
-| `sets` | até 3 links (ou `{soundcloud, titulo?, tipo: set|release}`) | Faixas/sets do SoundCloud; título e capa vêm do oEmbed; entram pendentes com o perfil. |
+| `sets` | até 3 links (ou `{soundcloud, titulo?, tipo: set|release}`) | Faixas/sets do SoundCloud; título e capa vêm do oEmbed; seguem o perfil (pendentes, ou publicados com `--publicar`). |
 | `fontes` | lista de `{url, usado}` | Obrigatório. |
 | `notas_agente` | texto | O que ficou incerto. |
 
@@ -114,14 +116,54 @@ Todo ensaio (`gravar`/`propor --ensaio`) devolve `faltando`: campos vazios que o
 | `nome` | texto | Obrigatório. |
 | `pais` | por extenso | `Brasil`, `Israel`, `Reino Unido`… |
 | `estilos` | lista de slugs | Só da Wikidelic. |
-| `logo` | `conta:…` | Discogs, Bandcamp, SoundCloud, Instagram. |
+| `logo` | `conta:…` | Discogs, Bandcamp, SoundCloud, Instagram. Com `--publicar`, o logo novo vai como proposta só do logo na Moderação (gravadora não tem fila de imagem nem `destaque`). |
 | `release` | texto (parágrafos) | História, artistas, som, lançamentos marcantes. Palavras próprias. |
 | `seo_title` | até 60 | Título para o Google: `Nome: gravadora de psytrance de Israel`. |
 | `seo_description` | até 158 | Descrição para o Google, 1–2 frases. |
 | `site`, `instagram`, `soundcloud`, `bandcamp`, `beatport` | URL | Oficiais. |
 | `fontes`, `notas_agente` | | Como no perfil. |
 
+## Crew (crew.py gravar)
+
+Coletivo ou produtora que organiza festas/festivais e reúne artistas. Página `/crew/<slug>`. Não é crew: gravadora (tabela
+própria), agência/booking, loja ou serviço.
+
+| Campo | Valor | Observação |
+|---|---|---|
+| `nome` | texto | Obrigatório. Como a crew escreve (`Origens Gathering`). |
+| `slug` | texto | Opcional (sai do nome). URL final no ensaio. |
+| `pais` | ISO-2 | Padrão `BR`. |
+| `uf` | sigla | Só Brasil. |
+| `cidade` | texto | Cidade-sede. |
+| `resumo` | até 160 | 1–2 frases (cards e Google). |
+| `release` | texto (parágrafos) | História, festas que organiza, artistas residentes, som. Palavras próprias. |
+| `logo`, `capa` | `conta:…` | Ref de `evento.py imagem`. Com `--publicar`, vão como proposta só das imagens na Moderação (crew não tem fila automática). |
+| `artistas` | lista de slugs de perfis | Integrantes/residentes confirmados pela fonte. Perfil inexistente = erro. Depois de gravada: `crew.py vincular <crew> artistas …`. |
+| `eventos` | lista de ids | Eventos da base organizados pela crew: ligados (eventos.crews) logo depois de criar, direto. |
+| `estilos` | lista de slugs | Só da Wikidelic. |
+| `site`, `instagram`, `facebook`, `soundcloud`, `youtube` | URL | Oficiais da crew. |
+| `seo_title` | até 60 | `Nome: crew de psytrance de Cidade`. |
+| `seo_description` | até 158 | 1–2 frases. |
+| `fontes`, `notas_agente` | | Como no perfil. |
+
+```json
+{
+  "nome": "Coletivo Exemplo",
+  "pais": "BR", "uf": "SC", "cidade": "Florianópolis",
+  "resumo": "Coletivo de Florianópolis que organiza festas de psytrance ao ar livre desde 2015.",
+  "release": "Primeiro parágrafo.\n\nSegundo parágrafo.",
+  "logo": "conta:0b6c…/9f1e….webp",
+  "artistas": ["fulano", "beltrana"],
+  "eventos": [492],
+  "estilos": ["full-on", "progressive"],
+  "instagram": "https://www.instagram.com/coletivoexemplo/",
+  "seo_title": "Coletivo Exemplo: crew de psytrance de Florianópolis",
+  "seo_description": "Coletivo que organiza festas de psytrance ao ar livre em Florianópolis desde 2015.",
+  "fontes": [{"url": "https://www.instagram.com/coletivoexemplo/", "usado": "bio, cidade, integrantes, festas"}]
+}
+```
+
 ## Loja ou serviço (negocio.py gravar)
 
-`tipo` (loja | servico), `nome`, `tags` (só de `negocio.py tags`), `cidade`, `uf`, `pais` (ISO-2), `resumo` (≤ 160), `release`,
+`tipo` (loja | servico), `nome`, `tags` (só de `negocio.py tags`; criador de conteúdo = servico com "Criadores de Conteúdo / UGC"), `cidade`, `uf`, `pais` (ISO-2), `resumo` (≤ 160), `release`,
 `logo`, `capa`, `site`, `instagram`, `facebook`, `youtube`, `video`, `fontes`, `notas_agente`.

@@ -5,8 +5,11 @@
   gravadora.py candidatos [--pais Brazil] [--desde 2023] [--estilo Psy-Trance] [--paginas 3]
                                                              # selos do Discogs fora da base (busca em lotes)
   gravadora.py selo "<nome>"                                 # Discogs: perfil, links, logo e catálogo cruzado com os perfis
-  gravadora.py gravar <gravadora.json|-> [--ensaio]          # gravadora nova pendente
-  gravadora.py propor <slug> <parcial.json|-> [--ensaio]     # proposta de alteração de gravadora publicada
+  gravadora.py gravar <gravadora.json|-> [--ensaio] [--publicar]        # gravadora nova (pendente; --publicar: no ar direto)
+  gravadora.py propor <slug> <parcial.json|-> [--ensaio] [--publicar]   # gravadora publicada: proposta ou edita direto
+
+Gravadoras não têm destaque nem fila automática de imagem: com --publicar, logo novo (conta:…) vira proposta só do logo na
+Moderação (a aprovação sobe para a Duda); o resto vai ao ar na hora.
 
 Discogs pela rota do CMS (/api/agente/discogs; a chave fica só no servidor). Saída em JSON.
 """
@@ -18,7 +21,7 @@ import sys
 
 import requests
 
-from evento import CMS, faltando, REF, Erro, eu, norm, paragrafos, rest, saida, sessao, slugify, tudo, uid
+from evento import CMS, faltando, REF, Erro, editar_direto, eu, norm, paragrafos, rest, saida, sessao, slugify, tudo, uid
 from artista import base_perfis, url_perfil
 
 URLS = ["site", "instagram", "soundcloud", "bandcamp", "beatport"]
@@ -145,7 +148,20 @@ def validar(e):
     return d, avisos
 
 
-def gravar(arquivo, ensaio=False):
+def proposta_logo(slug, logo, fontes):
+    """Logo novo de gravadora publicada direto: a fila automática não atende gravadoras, então vai como proposta só do logo
+    (a aprovação na Moderação sobe para a Duda). Proposta pendente de outra pessoa: avisa em vez de travar."""
+    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.gravadoras&chave=eq.{slug}&status=eq.pendente&tipo=neq.imagem").json()
+    if pend:
+        return {"aviso_logo": f"Logo não enviado: já há proposta em análise (#{pend[0]['id']}). Proponha o logo depois que ela for decidida."}
+    r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
+             json={"tabela": "gravadoras", "chave": slug, "user_id": uid(), "dados": {"logo": logo},
+                   "mensagem": "Logo (gravadora publicada direto pelo agente)", "origem": "agente", "fontes": fontes}).json()[0]
+    return {"logo_na_moderacao": f"{CMS}/moderacao/alteracao/{r['id']}",
+            "aviso_logo": "Logo vai como proposta na Moderação (gravadora não tem fila automática de imagem)."}
+
+
+def gravar(arquivo, ensaio=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     d, avisos = validar(e)
     eu()
@@ -158,14 +174,22 @@ def gravar(arquivo, ensaio=False):
         d["slug"], n = f"{base_slug}-{n}", n + 1
     url = _url(d)
     falta = faltando(d, COMPLETO)
+    logo = ""
+    if publicar:  # "Publicar direto" (gravadora não tem destaque); logo conta:… vai como proposta à parte
+        d["status"] = "publicado"
+        if REF.match(d["logo"]):
+            logo, d["logo"] = d["logo"], ""
+            avisos.append("Logo vai como proposta na Moderação (gravadora não tem fila automática de imagem).")
     if ensaio:
-        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "publicar": publicar, "url": url, "faltando": falta, "avisos": avisos, "registro": d | ({"logo": logo} if logo else {})}
     r = rest("POST", "gravadoras?select=slug,status", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "faltando": falta, "avisos": avisos,
-            "moderacao": f"{CMS}/moderacao/cadastro/gravadoras/{r['slug']}"}
+    res = {"ok": True, "slug": r["slug"], "url": url, "status": r["status"], "faltando": falta, "avisos": avisos}
+    if publicar:
+        return res | (proposta_logo(r["slug"], logo, d["fontes"]) if logo else {})
+    return res | {"moderacao": f"{CMS}/moderacao/cadastro/gravadoras/{r['slug']}"}
 
 
-def propor(slug, arquivo, ensaio=False):
+def propor(slug, arquivo, ensaio=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     atual = rest("GET", "gravadoras?select=*&slug=eq." + slug).json()
     if not atual or atual[0]["status"] != "publicado":
@@ -178,6 +202,13 @@ def propor(slug, arquivo, ensaio=False):
         raise Erro("Nada muda.")
     res = {"gravadora": {"slug": slug, "nome": a["nome"], "site": _url(a)}, "mudancas": mud,
            "faltando": faltando(a | {k: d[k] for k in mud}, COMPLETO), "avisos": avisos}
+    if publicar:  # "Publicar direto": PATCH; logo conta:… vai como proposta só do logo
+        dados = {k: d[k] for k in mud}
+        logo = dados.pop("logo") if REF.match(str(dados.get("logo") or "")) else ""
+        if ensaio:
+            return res | {"ensaio": True, "publicar": True, "editar_direto": sorted(dados), "logo_na_moderacao": bool(logo)}
+        feito = editar_direto("gravadoras", "slug=eq." + slug, slug, dados, [], e.get("notas_agente")) if dados or e.get("notas_agente") else {"ok": True}
+        return res | feito | (proposta_logo(slug, logo, d["fontes"]) if logo else {})
     if ensaio:
         return res | {"ensaio": True}
     eu()
@@ -205,9 +236,9 @@ def main(args):
     elif cmd == "selo" and pos:
         saida(selo(" ".join(pos)))
     elif cmd == "gravar" and pos:
-        saida(gravar(pos[0], ens))
+        saida(gravar(pos[0], ens, "--publicar" in resto))
     elif cmd == "propor" and len(pos) > 1:
-        saida(propor(pos[0], pos[1], ens))
+        saida(propor(pos[0], pos[1], ens, "--publicar" in resto))
     else:
         raise Erro("Uso: gravadora.py buscar|candidatos|selo|gravar|propor (veja --help)")
 

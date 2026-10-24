@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Revisão da base do Trance.com.br (agente /trance, modo revisar). Plano: cms/PLANO-AGENTE-TRANCE.md, seção 6d.
 
-Só lê (sessão da equipe, como o evento.py). A única escrita é `aplicar vinculos`, que transforma os vínculos aprovados no
-relatório em propostas (alteracoes, origem agente) de eventos.artistas para a Moderação do CMS; nunca edita o publicado.
-O resto vira proposta (artista.py propor) ou ajuste no CMS.
+Os temas só leem (sessão da equipe, como o evento.py). Escrevem: `aplicar vinculos` e `aplicar gravadoras` (vínculos aprovados
+no relatório, direto e sem Moderação desde 2026-10-23, acrescentando e tirando) e `inativar` (status arquivado, nunca apaga).
+O resto vira proposta/edição (artista.py propor) ou ajuste no CMS.
 
   revisar.py resumo                         # contagem de cada problema (roda todos os temas)
   revisar.py vinculos [--todos]             # evento ↔ artista: nome no line-up com perfil e sem vínculo; vínculo fora do line-up
   revisar.py gravadoras                     # perfil ↔ gravadora: selo citado no crew sem vínculo; vínculo com selo não publicado
   revisar.py duplicatas                     # perfis, eventos, gravadoras, lojas/serviços repetidos
-  revisar.py incompletos                    # campos importantes vazios ou datas invertidas
+  revisar.py incompletos                    # campos importantes vazios ou datas invertidas; crews sem artistas/eventos
   revisar.py links [--limite 60]            # sites e SoundCloud fora do ar (amostra; Instagram bloqueia robôs)
   revisar.py estilos                        # estilo inexistente; edições do mesmo evento em séries diferentes
-  revisar.py aplicar vinculos <arquivo.json>  # [{"evento": id, "adicionar": [slugs], "remover": [slugs]}] -> propostas na Moderação
+  revisar.py aplicar vinculos <arquivo.json> [--ensaio]     # [{"evento": id, "adicionar": [slugs], "remover": [slugs]}] direto
+  revisar.py aplicar gravadoras <arquivo.json> [--ensaio]   # [{"perfil": slug, "adicionar": [gravadoras], "remover": [...]}] direto
+  revisar.py inativar <tabela> <chave> [<chave> ...] --motivo "..." [--ensaio]
+      # tira do site (status arquivado): perfis <slug>, eventos <id>, gravadoras <slug>, negocios <loja|servico>/<slug>, sets <id>,
+      # crews <slug>
 
 Saída em JSON; listas longas vêm cortadas (`total` diz quantos são).
 """
@@ -26,8 +30,8 @@ from collections import defaultdict
 
 import requests
 
-from evento import CMS, UA_NAVEGADOR, Erro, eu, mudar_artistas, norm, nucleo, rest, saida, tudo
-from artista import ROTAS, _arroba, _sc
+from evento import CMS, UA_NAVEGADOR, Erro, eu, mudar_artistas, norm, nota_agente, nucleo, rest, saida, tudo
+from artista import ROTAS, _arroba, _sc, gravadoras as ligar_gravadoras
 
 LIMITE = 40
 
@@ -109,7 +113,7 @@ def vinculos(todos=False):
     return {"tema": "vinculos", "faltam_vinculos": _corta(faltam, 400), "total_vinculos_novos": sum(len(x["adicionar"]) for x in faltam),
             "provaveis": _corta(provaveis, 400), "total_provaveis": sum(len(x["adicionar"]) for x in provaveis),
             "vinculados_fora_do_lineup": _corta(fora), "vinculos_quebrados": _corta(quebrados),
-            "como_corrigir": "Aprovados no relatório: grave a lista [{evento, adicionar}] num JSON e rode `revisar.py aplicar vinculos <arquivo>`."}
+            "como_corrigir": "Aprovados no relatório: grave a lista [{evento, adicionar, remover}] num JSON e rode `revisar.py aplicar vinculos <arquivo>` (direto, sem Moderação)."}
 
 
 def gravadoras():
@@ -139,7 +143,7 @@ def gravadoras():
     cad = sorted(({"selo": k, "perfis": v, "n": len(v)} for k, v in a_cadastrar.items()), key=lambda x: -x["n"])
     return {"tema": "gravadoras", "crew_sem_vinculo": _corta(sem_vinc, 200), "vinculo_com_selo_fora_do_ar": _corta(vinc_ruim),
             "selos_citados_fora_da_base": _corta(cad, 60),
-            "como_corrigir": "crew_sem_vinculo = vínculo (lote aprovado no relatório: artista.py propor <slug> com a lista completa de gravadoras); "
+            "como_corrigir": "crew_sem_vinculo = vínculo (lote aprovado no relatório: [{perfil, adicionar}] e `revisar.py aplicar gravadoras <arquivo>`, direto); "
                              "selos fora da base = candidatos a cadastro (fase de gravadoras)."}
 
 
@@ -183,6 +187,12 @@ def incompletos():
     gv = [g for g in tudo("gravadoras?select=slug,nome,status,logo,release,pais,estilos,seo_description,site,instagram,soundcloud,bandcamp,beatport")
           if g["status"] == "publicado"]
     ng = [n for n in tudo("negocios?select=tipo,slug,nome,cidade,tags,logo,resumo,status") if n["status"] == "publicado"]
+    # crews (2026-10-23): página /crew/<slug> com artistas (crews.artistas) e eventos (eventos.crews)
+    cr = [c for c in tudo("crews?select=slug,nome,status,artistas,logo,resumo,release,cidade,instagram,site&order=slug") if c["status"] == "publicado"]
+    slugs_pf = {p["slug"] for p in pf}
+    todos_ev = _eventos_crews()
+    com_evento = {c for e in todos_ev if e["status"] == "publicado" for c in (e["crews"] or [])}
+    slugs_cr = {c["slug"] for c in tudo("crews?select=slug,status") if c["status"] in ("publicado", "pendente")}
 
     def lst(itens, f, campos):
         return _corta([{c: x.get(c) for c in campos} for x in itens if f(x)], 60)
@@ -202,7 +212,21 @@ def incompletos():
             **{f"gravadoras_sem_{c}": _corta([{"slug": g["slug"], "nome": g["nome"]} for g in gv if not g[c]], 60)
                for c in ("logo", "release", "pais", "estilos", "seo_description")},
             "gravadoras_sem_links": _corta([{"slug": g["slug"], "nome": g["nome"]} for g in gv
-                                             if not any(g[k] for k in ("site", "instagram", "soundcloud", "bandcamp", "beatport"))], 60)}
+                                             if not any(g[k] for k in ("site", "instagram", "soundcloud", "bandcamp", "beatport"))], 60),
+            # crews: sem artistas ou sem eventos a página fica vazia; vínculo para perfil fora do ar ou crew inexistente
+            "crews_sem_artistas": _corta([{"slug": c["slug"], "nome": c["nome"], "site": f"https://www.trance.com.br/crew/{c['slug']}"}
+                                          for c in cr if not [a for a in (c["artistas"] or []) if a in slugs_pf]], 60),
+            "crews_sem_eventos": _corta([{"slug": c["slug"], "nome": c["nome"], "site": f"https://www.trance.com.br/crew/{c['slug']}"}
+                                         for c in cr if c["slug"] not in com_evento], 60),
+            **{f"crews_sem_{c}": _corta([{"slug": x["slug"], "nome": x["nome"]} for x in cr if not x[c]], 60) for c in ("logo", "resumo", "release", "cidade")},
+            "crews_artistas_fora_do_ar": _corta([{"crew": c["slug"], "perfis": [a for a in (c["artistas"] or []) if a not in slugs_pf]}
+                                                 for c in cr if [a for a in (c["artistas"] or []) if a not in slugs_pf]], 60),
+            "eventos_com_crew_inexistente": _corta([{"id": e["id"], "nome": e["nome"], "crews": [c for c in (e["crews"] or []) if c not in slugs_cr]}
+                                                    for e in todos_ev if [c for c in (e["crews"] or []) if c not in slugs_cr]], 60)}
+
+
+def _eventos_crews():
+    return tudo("eventos?select=id,nome,status,crews&crews=neq.{}&order=id")
 
 
 def links(limite=60):
@@ -259,34 +283,130 @@ def resumo():
             "links": "não incluído no resumo (lento): rode `revisar.py links`"}
 
 
-def aplicar_vinculos(arquivo):
+def aplicar_vinculos(arquivo, ensaio=False):
+    """Vínculos evento ↔ artista aprovados no relatório, direto (sem Moderação, 2026-10-23): soma e tira em eventos.artistas."""
     lote = json.loads(pathlib.Path(arquivo).read_text())
     if not isinstance(lote, list):
         raise Erro("Arquivo: lista de {evento, adicionar, remover}.")
-    eu()
+    if not ensaio:
+        eu()
     feitos, erros = [], []
     for item in lote:
         try:
-            ev = rest("GET", f"eventos?select=id,status,origem,artistas&id=eq.{int(item['evento'])}").json()
+            ev = rest("GET", f"eventos?select=id,nome,status,origem,artistas&id=eq.{int(item['evento'])}").json()
             if not ev:
                 raise Erro("evento não encontrado")
             atual = ev[0]["artistas"] or []
             novos = [s for s in item.get("adicionar") or [] if s not in atual]
+            ignorados = []
             if novos:
                 ok = {p["slug"] for p in rest("GET", "perfis?select=slug&slug=in.(" + ",".join(f'"{s}"' for s in novos) + ")").json()}
+                ignorados = [s for s in novos if s not in ok]
                 novos = [s for s in novos if s in ok]
             fora = [s for s in item.get("remover") or [] if s in atual]  # vínculo errado (nome no meio do texto, outro artista)
             feito = {}
-            if novos:  # acrescentar: direto, sem Moderação (rpc agente_vincular)
-                feito = mudar_artistas(ev[0], atual + novos)
-            if fora:  # tirar: proposta (alteracoes, origem agente) aprovada na Moderação; nunca edita o publicado direto
-                msg = "Revisão de vínculos: - " + ", ".join(fora)
-                feito |= mudar_artistas(ev[0], [s for s in atual + novos if s not in fora], msg)
-            feitos.append({"evento": item["evento"], "adicionados": novos, "removidos": fora, **feito})
+            if (novos or fora) and not ensaio:
+                feito = mudar_artistas(ev[0], [s for s in atual + novos if s not in fora])
+            feitos.append({"evento": item["evento"], "nome": ev[0]["nome"], "adicionados": novos, "removidos": fora,
+                           **({"perfis_inexistentes": ignorados} if ignorados else {}), **feito})
         except (Erro, KeyError, ValueError) as e:
             erros.append({"evento": item.get("evento"), "erro": str(e)})
-    return {"ok": not erros, "eventos": len(feitos), "propostas": [f["proposta"] for f in feitos if f.get("proposta")], "vinculos_adicionados": sum(len(f["adicionados"]) for f in feitos),
-            "vinculos_removidos": sum(len(f["removidos"]) for f in feitos), "erros": erros}
+    return {"ok": not erros, "ensaio": ensaio, "eventos": len(feitos), "vinculos_adicionados": sum(len(f["adicionados"]) for f in feitos),
+            "vinculos_removidos": sum(len(f["removidos"]) for f in feitos), "itens": feitos, "erros": erros}
+
+
+def aplicar_gravadoras(arquivo, ensaio=False):
+    """Vínculos artista ↔ gravadora aprovados no relatório, direto (sem Moderação, 2026-10-23): soma e tira em perfis.gravadoras."""
+    lote = json.loads(pathlib.Path(arquivo).read_text())
+    if not isinstance(lote, list):
+        raise Erro("Arquivo: lista de {perfil, adicionar, remover}.")
+    feitos, erros = [], []
+    for item in lote:
+        try:
+            slug, r = str(item["perfil"]), {}
+            if item.get("remover"):
+                r = ligar_gravadoras(slug, item["remover"], ensaio, remover=True)
+            if item.get("adicionar"):
+                r = {"remover": r.get("remover", [])} | ligar_gravadoras(slug, item["adicionar"], ensaio)
+            feitos.append({"perfil": slug, "antes": r.get("antes"), "depois": r.get("depois"), "removidas": r.get("remover", []),
+                           "adicionadas": [g["slug"] for g in r.get("adicionar", [])], "avisos": r.get("avisos", [])})
+        except (Erro, KeyError, ValueError) as e:
+            erros.append({"perfil": item.get("perfil"), "erro": str(e)})
+    return {"ok": not erros, "ensaio": ensaio, "perfis": len(feitos), "itens": feitos, "erros": erros}
+
+
+# ---------------------------------------------------------------- inativar (status arquivado; nunca apaga)
+# chave de cada tabela e se ela guarda notas do agente (sets não tem notas_agente: o motivo fica só no relatório)
+INATIVAR = {"perfis": ("slug", True), "eventos": ("id", True), "gravadoras": ("slug", True), "negocios": ("tipo/slug", True), "sets": ("id", False),
+            "crews": ("slug", True)}
+
+
+def _filtro(tabela, chave):
+    if tabela in ("eventos", "sets"):
+        if not str(chave).isdigit():
+            raise Erro(f"{tabela}: a chave é o id (número), veio {chave!r}.")
+        return f"id=eq.{int(chave)}"
+    if tabela == "negocios":
+        tipo, _, slug = str(chave).partition("/")
+        if tipo not in ("loja", "servico") or not slug:
+            raise Erro(f"negocios: use loja/<slug> ou servico/<slug>, veio {chave!r}.")
+        return f"tipo=eq.{tipo}&slug=eq.{slug}"
+    return f"slug=eq.{chave}"
+
+
+def inativar(tabela, chaves, motivo, ensaio=False):
+    """Tira cadastros do site (status arquivado), nunca apaga. O dono pode editar em conta.trance.com.br e reenviar (volta a
+    pendente) e o CMS tem "Publicar de novo". O motivo vai em notas_agente (linha datada), onde a coluna existe."""
+    if tabela not in INATIVAR:
+        raise Erro("tabela: " + ", ".join(INATIVAR))
+    motivo = re.sub(r"\s+", " ", str(motivo or "")).strip()
+    if not motivo:
+        raise Erro('Informe o motivo: --motivo "..." (vai para as notas do agente e para o relatório).')
+    chaves = list(dict.fromkeys(str(c).strip() for c in chaves if str(c).strip()))
+    if not chaves:
+        raise Erro("Informe ao menos uma chave.")
+    _, tem_notas = INATIVAR[tabela]
+    campos = {"perfis": "slug,nome,categoria,status", "eventos": "id,rota,slug,nome,inicio,status", "gravadoras": "slug,nome,status",
+              "negocios": "tipo,slug,nome,status", "sets": "id,perfil,titulo,status", "crews": "slug,nome,status,artistas"}[tabela] + (",notas_agente" if tem_notas else "")
+    itens, ignorados = [], []
+    for c in chaves:
+        r = rest("GET", f"{tabela}?select={campos}&{_filtro(tabela, c)}").json()
+        if not r:
+            ignorados.append({"chave": c, "motivo": "não encontrado"})
+            continue
+        x = r[0]
+        if x["status"] not in ("publicado", "pendente"):
+            ignorados.append({"chave": c, "motivo": f"já está {x['status']}"})
+            continue
+        site = {"perfis": lambda: _pf_url(x), "eventos": lambda: _ev_url(x), "gravadoras": lambda: f"https://www.trance.com.br/gravadora/{x['slug']}",
+                "negocios": lambda: f"https://www.trance.com.br/{x['tipo']}/{x['slug']}", "sets": lambda: f"(set do perfil {x['perfil']})",
+                "crews": lambda: f"https://www.trance.com.br/crew/{x['slug']}"}[tabela]()
+        item = {"chave": c, "nome": x.get("nome") or x.get("titulo"), "status": x["status"],
+                "sai_do_site": site if x["status"] == "publicado" else "(ainda pendente: sai da fila da Moderação)", "_x": x}
+        if tabela == "perfis":
+            item["sets_publicados"] = len(rest("GET", f"sets?select=id&perfil=eq.{x['slug']}&status=eq.publicado").json())
+            item["eventos_vinculados"] = len(rest("GET", f"eventos?select=id&artistas=cs.{{{x['slug']}}}&status=eq.publicado").json())
+        if tabela == "crews":  # os vínculos ficam (voltam se a crew for publicada de novo); só saem do site junto com ela
+            item["artistas_vinculados"] = len(x.get("artistas") or [])
+            item["eventos_vinculados"] = len(rest("GET", f"eventos?select=id&crews=cs.{{{x['slug']}}}&status=eq.publicado").json())
+        itens.append(item)
+    res = {"tabela": tabela, "motivo": motivo, "inativar": [{k: v for k, v in i.items() if k != "_x"} for i in itens], "ignorados": ignorados,
+           "volta": "O dono pode editar e reenviar em conta.trance.com.br (volta para a Moderação como pendente); no CMS, \"Publicar de novo\" restaura."}
+    if ensaio or not itens:
+        return res | {"ensaio": ensaio, "alterado": 0}
+    eu()
+    feitos, erros = [], []
+    for i in itens:
+        mudar = {"status": "arquivado"}
+        if tem_notas:
+            mudar["notas_agente"] = nota_agente(i["_x"].get("notas_agente"), "Inativado pelo agente: " + motivo)
+        try:
+            r = rest("PATCH", f"{tabela}?{_filtro(tabela, i['chave'])}&status=in.(publicado,pendente)&select=status", json=mudar,
+                     headers={"Prefer": "return=representation"}).json()
+            (feitos if r else erros).append(i["chave"] if r else {"chave": i["chave"], "erro": "mudou de situação: nada alterado"})
+        except Erro as e:
+            erros.append({"chave": i["chave"], "erro": str(e)})
+    return res | {"ok": not erros, "alterado": len(feitos), "arquivados": feitos, "erros": erros}
 
 
 def main(args):
@@ -295,7 +415,8 @@ def main(args):
         return
     cmd, resto = args[0], args[1:]
     opc = {a for a in resto if a.startswith("--")}
-    pos = [a for a in resto if not a.startswith("--")]
+    motivo = next((resto[i + 1] for i, a in enumerate(resto) if a == "--motivo" and i + 1 < len(resto)), "")
+    pos = [a for i, a in enumerate(resto) if not a.startswith("--") and not (i and resto[i - 1] in ("--motivo", "--limite"))]
     lim = next((int(resto[i + 1]) for i, a in enumerate(resto) if a == "--limite" and i + 1 < len(resto)), 60)
     temas = {"resumo": resumo, "duplicatas": duplicatas, "incompletos": incompletos, "estilos": estilos, "gravadoras": gravadoras}
     if cmd in temas:
@@ -305,9 +426,14 @@ def main(args):
     elif cmd == "links":
         saida(links(lim))
     elif cmd == "aplicar" and pos[:1] == ["vinculos"] and len(pos) > 1:
-        saida(aplicar_vinculos(pos[1]))
+        saida(aplicar_vinculos(pos[1], "--ensaio" in opc))
+    elif cmd == "aplicar" and pos[:1] == ["gravadoras"] and len(pos) > 1:
+        saida(aplicar_gravadoras(pos[1], "--ensaio" in opc))
+    elif cmd == "inativar" and len(pos) > 1:
+        saida(inativar(pos[0], pos[1:], motivo, "--ensaio" in opc))
     else:
-        raise Erro("Uso: revisar.py resumo|vinculos|gravadoras|duplicatas|incompletos|links|estilos | aplicar vinculos <arquivo>")
+        raise Erro("Uso: revisar.py resumo|vinculos|gravadoras|duplicatas|incompletos|links|estilos | aplicar vinculos|gravadoras <arquivo> [--ensaio]"
+                   ' | inativar <tabela> <chave> [...] --motivo "..." [--ensaio]')
 
 
 if __name__ == "__main__":

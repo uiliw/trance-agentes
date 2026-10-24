@@ -16,9 +16,14 @@ o RLS (cms_pode_editar) decide o que pode, e o histórico do CMS registra quem g
   evento.py candidatos goabase [--pais BR,PT] [--dias 180] [--festivais]
   evento.py candidatos recorrentes [--meses 14]            # festivais da base sem a próxima edição
   evento.py goabase <id|link>                              # detalhes de uma festa do Goabase (line-up, texto, flyer)
-  evento.py gravar <evento.json> [--ensaio] [--passado]
+  evento.py gravar <evento.json> [--ensaio] [--passado] [--publicar]   # padrão: pendente na Moderação; --publicar: no ar direto
   evento.py atualizar <id> <parcial.json>  # completa sugestão do agente ainda pendente (ex.: line-up que chegou depois)
-  evento.py propor <id> <parcial.json> [--ensaio]   # proposta de alteração de evento publicado (Moderação do CMS)
+  evento.py propor <id> <parcial.json> [--ensaio] [--publicar]   # evento publicado: proposta na Moderação ou, com --publicar, edita direto
+  evento.py servicos <id> <slug> [<slug> ...] [--remover] [--ensaio]   # evento ↔ serviço (eventos.servicos), direto, sem Moderação
+                                           # (evento ↔ crew: crew.py vincular <crew> eventos <id>)
+
+--publicar (escolha do usuário no relatório, "Publicar direto"): grava status publicado / edita o que está no ar. Imagens novas
+(conta:…) não vão no registro: entram na fila automática (alteracoes tipo imagem), que sobe para a Duda e aplica em 1-2 min.
 
 Saída sempre em JSON (stdout); erros em stderr com código 1.
 """
@@ -58,7 +63,7 @@ UFS = {"AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "B
 TEXTO = ["nome", "local", "cidade", "pais"]
 URLS = ["site", "instagram", "facebook", "youtube", "video", "ingresso"]
 PERMITIDOS = {"nome", "slug", "categoria", "inicio", "fim", "resumo", "release", "programacao", "imagem", "flyer", "logo", "local", "cidade",
-              "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente", "artistas"}
+              "uf", "pais", "pais_iso", "lat", "lng", *URLS, "fontes", "notas_agente", "artistas", "crews", "servicos"}
 # tudo o que o site mostra do evento: o ensaio lista o que ficou vazio ("faltando")
 COMPLETO = ["fim", "resumo", "release", "programacao", "flyer", "imagem", "logo", "local", "cidade", "lat", "lng", "site", "instagram",
             "facebook", "video", "ingresso"]
@@ -516,6 +521,77 @@ def faltando(d, campos):
     return [k for k in campos if d.get(k) in (None, "", [], {})]
 
 
+# ---------------------------------------------------------------- publicar direto (2026-10-23: sessão do agente = editor pleno)
+def separar_imagens(d, campos, editar=False):
+    """Refs conta:… (bucket privado) nunca vão para o registro publicado: saem de `d` e voltam para a fila de imagens.
+    Cadastro novo: o campo fica vazio (galeria: só o que já está na Duda) até a fila aplicar. Edição (editar=True): o campo
+    sai do PATCH e a imagem atual continua no ar até a nova chegar."""
+    fila = {}
+    for k in campos:
+        v = d.get(k)
+        if isinstance(v, list) and any(REF.match(str(x)) for x in v):
+            fila[k] = v  # a fila aceita lista com refs e URLs da Duda misturadas (galeria inteira, na ordem)
+        elif isinstance(v, str) and REF.match(v):
+            fila[k] = v
+        else:
+            continue
+        if editar:
+            d.pop(k)
+        else:
+            d[k] = [x for x in v if not REF.match(str(x))] if isinstance(v, list) else ""
+    return fila
+
+
+def fila_imagens(tabela, chave, imagens):
+    """Fila automática de imagens (alteracoes tipo imagem; cms/scripts/revalidar.mjs, a cada minuto): sobe para a Duda e grava
+    no registro publicado. Uma pendente por (tabela, chave): a do próprio agente recebe as novas (merge)."""
+    if not imagens:
+        return {}
+    u = uid()
+    pend = rest("GET", f"alteracoes?select=id,user_id,dados&tabela=eq.{tabela}&chave=eq.{chave}&tipo=eq.imagem&status=eq.pendente").json()
+    if pend and pend[0]["user_id"] != u:
+        return {"imagens_na_fila": [], "aviso_imagens": "Já há imagem do dono na fila deste cadastro: rode de novo só com as imagens "
+                "daqui a 1-2 minutos (" + ", ".join(sorted(imagens)) + ")."}
+    if pend:
+        rest("PATCH", f"alteracoes?id=eq.{pend[0]['id']}&status=eq.pendente", json={"dados": (pend[0]["dados"] or {}) | imagens})
+        id_ = pend[0]["id"]
+    else:
+        id_ = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
+                   json={"tabela": tabela, "chave": chave, "user_id": u, "tipo": "imagem", "origem": "agente", "dados": imagens,
+                         "mensagem": "Imagens (agente, publicado direto)", "fontes": []}).json()[0]["id"]
+    return {"imagens_na_fila": sorted(imagens), "fila_imagens": id_,
+            "aviso_imagens": "Imagens na fila automática: vão para a Duda e aparecem no site em 1-2 minutos (sem Moderação)."}
+
+
+def nota_agente(antiga, nova):
+    """Soma uma linha datada às notas do agente (nunca apaga o que já estava)."""
+    nova = str(nova or "").strip()
+    if not nova:
+        return antiga or ""
+    return ((antiga or "").strip() + f"\n[{dt.date.today().isoformat()}] {nova}").strip()[-3000:]
+
+
+def editar_direto(tabela, filtro, chave, dados, campos_img, nota="", ensaio=False):
+    """Edita um cadastro publicado direto (sem proposta): campos comuns por PATCH, imagens novas pela fila automática.
+    Uma proposta de outra pessoa ainda pendente não trava (a Moderação decide a dela); a nota vai em notas_agente."""
+    dados = dict(dados)
+    fila = separar_imagens(dados, campos_img, editar=True)
+    if ensaio:
+        return {"ensaio": True, "publicar": True, "editar_direto": sorted(dados), "imagens_na_fila": sorted(fila)}
+    eu()
+    if nota and tabela != "regioes":
+        atual = rest("GET", f"{tabela}?select=notas_agente&{filtro}").json()
+        dados["notas_agente"] = nota_agente(atual[0]["notas_agente"] if atual else "", nota)
+    res = {"ok": True, "publicar": True}
+    if dados:
+        so_no_ar = "" if tabela == "regioes" else "&status=eq.publicado"  # região não tem status (sempre no ar)
+        r = rest("PATCH", f"{tabela}?{filtro}{so_no_ar}&select=slug", json=dados, headers={"Prefer": "return=representation"}).json()
+        if not r:
+            raise Erro("Nada alterado: o cadastro não está mais publicado.")
+        res["editado"] = sorted(k for k in dados if k != "notas_agente")
+    return res | fila_imagens(tabela, chave, fila)
+
+
 def paragrafos(texto):
     """Texto puro -> HTML do CMS (só p/br), escapado. Parágrafos separados por linha em branco.
     Veio HTML (o modelo às vezes manda <p>...</p>): vira texto antes, senão as tags saíam escapadas no site (2026-10-15)."""
@@ -621,6 +697,14 @@ def validar(e, passado=False):
         if not re.match(r"^https?://\S+$", u):
             raise Erro(f"fonte inválida: {u[:80]}")
         d["fontes"].append({"url": u[:1000], "usado": str((f or {}).get("usado", "") if isinstance(f, dict) else "")[:300]})
+    # crews (slugs de crews) e serviços (slugs de negócios tipo servico) do evento; conferidos na base por conferir_ligacoes
+    for k in ("crews", "servicos"):
+        v = e.get(k) or []
+        if not isinstance(v, list):
+            raise Erro(f"{k}: lista de slugs.")
+        d[k] = list(dict.fromkeys(str(x).strip() for x in v if str(x).strip()))
+        if any(not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", x) for x in d[k]):
+            raise Erro(f"{k}: use os slugs (crew.py buscar / negocio.py buscar).")
     d["notas_agente"] = str(e.get("notas_agente") or "").strip()[:3000]
     d["slug"] = slugify(e.get("slug") or f"{d['nome']} {d['inicio'][:4] if d['inicio'][:4] not in d['nome'] else ''}")
     if not d["slug"]:
@@ -628,6 +712,55 @@ def validar(e, passado=False):
     # endereço pelo tipo (gatilho rota_por_tipo no banco): /festival, /festa, /feira-exposicao, /curso-retiro
     d.update(rota=ROTA_TIPO[d["categoria"]], status="pendente", origem="agente")
     return d, avisos
+
+
+def conferir_ligacoes(d, avisos):
+    """crews e servicos do evento têm de existir (publicados ou pendentes; pendente aparece no site quando aprovado)."""
+    for k, tabela, filtro, nome in (("crews", "crews", "", "crew"), ("servicos", "negocios", "&tipo=eq.servico", "serviço")):
+        if not d.get(k):
+            continue
+        achados = {r["slug"]: r for r in rest("GET", f"{tabela}?select=slug,nome,status{filtro}&slug=in.(" + ",".join(f'"{x}"' for x in d[k]) + ")").json()}
+        faltam = [x for x in d[k] if x not in achados or achados[x]["status"] not in ("publicado", "pendente")]
+        if faltam:
+            raise Erro(f"{k}: sem cadastro ativo de {nome} na base: " + ", ".join(faltam)
+                       + (" (cadastre com crew.py gravar)" if k == "crews" else " (serviço = negocio.py, tipo servico)"))
+        pend = [achados[x]["nome"] for x in d[k] if achados[x]["status"] != "publicado"]
+        if pend:
+            avisos.append(f"{k}: ainda pendentes (aparecem no evento quando aprovados): " + ", ".join(pend))
+
+
+def servicos(evento_id, slugs, ensaio=False, remover=False):
+    """Evento ↔ serviço (eventos.servicos: soundsystem, infraestrutura, alimentação, tenda de cura...), direto e sem Moderação,
+    como o vínculo evento ↔ artista. Só negócios tipo servico que existem."""
+    if not str(evento_id).isdigit():
+        raise Erro("Uso: servicos <evento_id> <slug> [<slug> ...] [--remover]")
+    slugs = list(dict.fromkeys(s.strip() for s in slugs if s.strip()))
+    if not slugs:
+        raise Erro("Informe ao menos um slug de serviço.")
+    ev = rest("GET", f"eventos?select=id,rota,slug,nome,status,servicos&id=eq.{int(evento_id)}").json()
+    if not ev:
+        raise Erro(f"Evento {evento_id} não encontrado.")
+    ev = ev[0]
+    antes = ev["servicos"] or []
+    info = {"id": ev["id"], "nome": ev["nome"], "status": ev["status"], "site": f"https://www.trance.com.br/{ev['rota']}/{ev['slug']}"}
+    avisos = []
+    if remover:
+        mexe = [s for s in slugs if s in antes]
+        depois = [s for s in antes if s not in mexe]
+        res = {"remover": mexe, "nao_vinculados": [s for s in slugs if s not in antes]}
+    else:
+        conferir_ligacoes({"servicos": slugs}, avisos)
+        mexe = [s for s in slugs if s not in antes]
+        depois = antes + mexe
+        res = {"adicionar": mexe, "ja_vinculados": [s for s in slugs if s in antes]}
+    res = {"evento": info, "antes": antes, "depois": depois, **res, "avisos": avisos}
+    if ensaio or not mexe:
+        return res | {"ensaio": ensaio, "alterado": False}
+    eu()
+    r = rest("PATCH", f"eventos?id=eq.{ev['id']}&select=id", json={"servicos": depois}, headers={"Prefer": "return=representation"}).json()
+    if not r:
+        raise Erro(f"Evento {ev['id']}: nada alterado.")
+    return res | {"ok": True, "alterado": True, "site": "sem Moderação: vale na hora"}
 
 
 def _sem_acento(t):
@@ -673,11 +806,12 @@ def slug_livre(base, rota="festa"):
     return f"{base}-{n}"
 
 
-def gravar(arquivo, ensaio=False, passado=False):
+def gravar(arquivo, ensaio=False, passado=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     d, avisos = validar(e, passado)
     eu()  # falha cedo se a sessão não for da equipe
     d["slug"] = slug_livre(d["slug"], d["rota"])
+    conferir_ligacoes(d, avisos)
     d["artistas"], soltos = ligar_lineup(d)
     # artistas indicados à mão (slugs): somam aos achados pelo line-up; só perfis que existem
     extra = [str(x).strip() for x in (e.get("artistas") or []) if str(x).strip()]
@@ -694,40 +828,40 @@ def gravar(arquivo, ensaio=False, passado=False):
     url = f"https://www.trance.com.br/{d['rota']}/{d['slug']}"
     home = (d["fim"] or d["inicio"])[:10] >= dt.date.today().isoformat()
     falta = faltando(d, COMPLETO + (["uf"] if d.get("pais_iso", "BR") == "BR" and d["pais"].lower() == "brasil" else []))
+    fila = {}
+    if publicar:  # "Publicar direto": no ar já; imagens novas pela fila automática (o registro nasce sem elas)
+        d["status"] = "publicado"
+        fila = separar_imagens(d, ["imagem", "flyer", "logo"])
     if ensaio:
-        return {"ensaio": True, "url": url, "na_agenda_da_home": home, "faltando": falta, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "publicar": publicar, "url": url, "na_agenda_da_home": home, "faltando": falta, "avisos": avisos,
+                "imagens_na_fila": sorted(fila), "registro": d | fila}
     r = rest("POST", "eventos?select=id,slug,status,origem", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "faltando": falta,
-            "avisos": avisos, "moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}", "editar": f"{CMS}/eventos/{r['id']}"}
+    res = {"ok": True, "id": r["id"], "slug": r["slug"], "url": url, "artistas": d["artistas"], "status": r["status"], "origem": r["origem"], "faltando": falta,
+           "avisos": avisos, "editar": f"{CMS}/eventos/{r['id']}"}
+    if publicar:
+        return res | fila_imagens("eventos", str(r["id"]), fila)
+    return res | {"moderacao": f"{CMS}/moderacao/cadastro/eventos/{r['id']}"}
 
 
-def mudar_artistas(ev, artistas, mensagem=""):
-    """Troca a lista eventos.artistas sem editar o publicado: evento publicado vira proposta (alteracoes, origem agente,
-    aprovada na Moderação); sugestão do próprio agente ainda pendente é completada (mesma regra do `atualizar`).
-    ev = {id, status, origem}. Devolve {"proposta": id} ou {"pendente_atualizado": id}."""
+def mudar_artistas(ev, artistas):
+    """Troca a lista eventos.artistas direto, em qualquer situação do evento (2026-10-23: vínculo evento ↔ artista não passa
+    mais pela Moderação, nem para tirar). Só acrescentar = rpc agente_vincular (soma sem corrida, só perfis que existem);
+    com remoção = PATCH da lista inteira. ev = {id}. Devolve {"vinculados": [...], "removidos": [...]}."""
     id_ = int(ev["id"])
-    # só acrescentar (publicado ou pendente): direto, sem Moderação (rpc agente_vincular, 2026-10-14); tirar segue como proposta
     atual = rest("GET", f"eventos?select=artistas&id=eq.{id_}").json()
-    atual = (atual[0]["artistas"] or []) if atual else []
-    if ev.get("status") in ("publicado", "pendente") and set(atual) <= set(artistas):
-        novos = [s for s in artistas if s not in atual]
+    if not atual:
+        raise Erro(f"Evento {id_} não encontrado.")
+    atual = atual[0]["artistas"] or []
+    artistas = list(dict.fromkeys(artistas))
+    novos = [s for s in artistas if s not in atual]
+    fora = [s for s in atual if s not in artistas]
+    if not fora:
         feitos = rest("POST", "rpc/agente_vincular", json={"p_evento": id_, "p_slugs": novos}).json() if novos else []
-        return {"vinculados": feitos, "site": "sem Moderação: vale na hora (perfis pendentes aparecem quando aprovados)"}
-    if ev.get("status") == "publicado":
-        pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente").json()
-        if pend:
-            raise Erro(f"Já há uma proposta em análise para o evento {id_} (#{pend[0]['id']}, {pend[0]['origem']}): aguarde a Moderação.")
-        r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
-                 json={"tabela": "eventos", "chave": str(id_), "user_id": uid(), "tipo": "edicao", "dados": {"artistas": list(artistas)},
-                       "mensagem": str(mensagem or "Vínculos de line-up (agente)")[:2000], "origem": "agente", "fontes": []}).json()[0]
-        return {"proposta": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
-    if ev.get("status") == "pendente" and ev.get("origem") == "agente":
-        r = rest("PATCH", f"eventos?id=eq.{id_}&status=eq.pendente&origem=eq.agente&select=id",
-                 json={"artistas": list(artistas)}, headers={"Prefer": "return=representation"}).json()
-        if not r:
-            raise Erro(f"Evento {id_} mudou de situação: nada alterado.")
-        return {"pendente_atualizado": id_, "moderacao": f"{CMS}/moderacao/cadastro/eventos/{id_}"}
-    raise Erro(f"Evento {id_} ({ev.get('status')}, origem {ev.get('origem')}): o agente só propõe em publicado ou completa a própria sugestão pendente; edite no CMS.")
+        return {"vinculados": feitos, "removidos": [], "site": "sem Moderação: vale na hora (perfis pendentes aparecem quando aprovados)"}
+    r = rest("PATCH", f"eventos?id=eq.{id_}&select=id,artistas", json={"artistas": artistas}, headers={"Prefer": "return=representation"}).json()
+    if not r:
+        raise Erro(f"Evento {id_}: nada alterado.")
+    return {"vinculados": novos, "removidos": fora, "site": "sem Moderação: vale na hora"}
 
 
 def atualizar(id_, arquivo):
@@ -745,6 +879,7 @@ def atualizar(id_, arquivo):
     novos = {k: v for k, v in e.items() if k != "slug"}
     d, avisos = validar({**base, **novos}, passado=True)
     mudar = {k: d[k] for k in novos if k in d}
+    conferir_ligacoes({k: mudar[k] for k in ("crews", "servicos") if k in mudar}, avisos)
     if "uf" in novos:
         mudar["estado"] = d["estado"]
     if "fontes" in novos:
@@ -754,7 +889,7 @@ def atualizar(id_, arquivo):
              json=mudar, headers={"Prefer": "return=representation"}).json()
     if not r:
         raise Erro("Nada atualizado (o evento mudou de situação?).")
-    return {"ok": True, "id": int(id_), "campos": sorted(mudar), "moderacao": f"{CMS}/moderacao/cadastro/eventos/{id_}"}
+    return {"ok": True, "id": int(id_), "campos": sorted(mudar), "avisos": avisos, "moderacao": f"{CMS}/moderacao/cadastro/eventos/{id_}"}
 
 
 # campos que o agente propõe num evento publicado (mesma lista do CMS: secoes.ts CAMPOS_AGENTE.eventos, menos artistas = vincular)
@@ -762,8 +897,9 @@ PROPOR = ["nome", "categoria", "inicio", "fim", "local", "cidade", "uf", "pais",
           "imagem", "flyer", "logo", *URLS]
 
 
-def propor(id_, arquivo, ensaio=False):
-    """Proposta de alteração de evento publicado (alteracoes, origem agente): só os campos enviados; aprovada na Moderação."""
+def propor(id_, arquivo, ensaio=False, publicar=False):
+    """Evento publicado, só os campos enviados: proposta (alteracoes, origem agente) aprovada na Moderação ou, com publicar=True
+    ("Publicar direto"), PATCH no registro; imagens novas (conta:…) pela fila automática."""
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     if not str(id_).isdigit():
         raise Erro("Uso: propor <id> <parcial.json>")
@@ -773,6 +909,8 @@ def propor(id_, arquivo, ensaio=False):
     a = atual[0]
     if a["status"] != "publicado":
         raise Erro("Evento não publicado: sugestão pendente do agente se completa com 'atualizar'; o resto se edita no CMS.")
+    if "crews" in e or "servicos" in e:  # vínculos não passam pela Moderação (2026-10-23)
+        raise Erro("crews e servicos são vínculos, direto e sem proposta: crew.py vincular <crew> eventos <id> / evento.py servicos <id> <slug>.")
     novos = {k: v for k, v in e.items() if k in PROPOR}
     if not novos:
         raise Erro("Nada para propor: use só os campos " + ", ".join(PROPOR) + " (line-up ligado: artista.py vincular).")
@@ -789,10 +927,13 @@ def propor(id_, arquivo, ensaio=False):
         avisos.append(f"Mudar a categoria muda o endereço para /{ROTA_TIPO[dados['categoria']]}/{a['slug']} (a Moderação confere o 301).")
     res = {"evento": {"id": int(id_), "nome": a["nome"], "site": f"https://www.trance.com.br/{a['rota']}/{a['slug']}"}, "mudancas": mudancas,
            "faltando": faltando(a | dados, COMPLETO), "avisos": avisos}
+    if publicar:
+        return res | editar_direto("eventos", f"id=eq.{int(id_)}", str(int(id_)), {k: dados[k] for k in mudancas}, ["imagem", "flyer", "logo"],
+                                   e.get("notas_agente"), ensaio)
     if ensaio:
         return res | {"ensaio": True}
     eu()
-    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente").json()
+    pend = rest("GET", f"alteracoes?select=id,origem&tabela=eq.eventos&chave=eq.{id_}&status=eq.pendente&tipo=neq.imagem").json()
     if pend:
         raise Erro(f"Já há uma proposta em análise para o evento {id_} (#{pend[0]['id']}, {pend[0]['origem']}): aguarde a Moderação.")
     r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
@@ -863,12 +1004,16 @@ def main(args):
         saida(atualizar(pos[0], pos[1]))
     elif cmd == "propor":
         if len(pos) < 2:
-            raise Erro("Uso: propor <id> <parcial.json|-> [--ensaio]")
-        saida(propor(pos[0], pos[1], "--ensaio" in opc))
+            raise Erro("Uso: propor <id> <parcial.json|-> [--ensaio] [--publicar]")
+        saida(propor(pos[0], pos[1], "--ensaio" in opc, "--publicar" in opc))
+    elif cmd == "servicos":
+        if len(pos) < 2:
+            raise Erro("Uso: servicos <evento_id> <slug> [<slug> ...] [--remover] [--ensaio]")
+        saida(servicos(pos[0], pos[1:], "--ensaio" in opc, "--remover" in opc))
     elif cmd == "gravar":
         if not pos:
-            raise Erro("Uso: gravar <evento.json|-> [--ensaio] [--passado]")
-        saida(gravar(pos[0], "--ensaio" in opc, "--passado" in opc))
+            raise Erro("Uso: gravar <evento.json|-> [--ensaio] [--passado] [--publicar]")
+        saida(gravar(pos[0], "--ensaio" in opc, "--passado" in opc, "--publicar" in opc))
     else:
         raise Erro(f"Comando desconhecido: {cmd}")
 

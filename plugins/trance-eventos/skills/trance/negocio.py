@@ -2,8 +2,11 @@
 """Agente /trance, parte de lojas e serviços (tabela negocios). Plano: cms/PLANO-AGENTE-TRANCE.md, seção 6b.
 
   negocio.py buscar "<nome>" [--instagram @x] [--site url]   # existentes / prováveis
-  negocio.py gravar <negocio.json|-> [--ensaio]              # loja ou serviço novo pendente (/loja/<slug>, /servico/<slug>)
-  negocio.py propor <loja|servico>/<slug> <parcial.json|-> [--ensaio]
+  negocio.py gravar <negocio.json|-> [--ensaio] [--publicar]   # loja ou serviço novo (/loja/<slug>, /servico/<slug>)
+  negocio.py propor <loja|servico>/<slug> <parcial.json|-> [--ensaio] [--publicar]
+
+Padrão: pendente / proposta na Moderação. --publicar ("Publicar direto"): no ar já; logo e capa novos (conta:…) pela fila
+automática de imagens (aparecem em 1-2 min).
   negocio.py tags                                            # tags aceitas (as mesmas do CMS)
 
 Saída em JSON.
@@ -16,14 +19,15 @@ import sys
 
 import requests
 
-from evento import CMS, faltando, REF, UFS, Erro, eu, norm, paragrafos, rest, saida, slugify, tudo, uid
+from evento import CMS, faltando, REF, UFS, Erro, editar_direto, eu, fila_imagens, norm, paragrafos, rest, saida, separar_imagens, slugify, tudo, uid
 from artista import _arroba
 
 # mesmas opções do CMS (cms/src/lib/secoes.ts: TAGS_LOJA, TAGS_SERVICO): tag fora da lista trava a aprovação
 TAGS = {"loja": ["Acessórios", "Artesanato", "Cartucheiras", "Comidas / Bebidas", "Cuidados Pessoais", "Decoração", "Ingressos", "Jóias e Bijus",
                  "Livros", "Malabares", "Tabacaria", "Tattoo / Piercing", "Vestuário", "Óleos e Essencias"],
         "servico": ["Agências / Booking", "Alimentação / Bar", "Excursões", "Infraestrutura", "Oficinas / Rodas", "Promoter / Comissário de Vendas",
-                    "Saúde / Segurança", "Sonorização / Imagem", "Sustentabilidade", "Tendas de Cura / Redução de Danos", "Terapias Holísticas"]}
+                    "Saúde / Segurança", "Sonorização / Imagem", "Sustentabilidade", "Tendas de Cura / Redução de Danos", "Terapias Holísticas",
+                    "Criadores de Conteúdo / UGC"]}
 URLS = ["site", "instagram", "facebook", "youtube", "video"]
 PERMITIDOS = {"tipo", "nome", "slug", "tags", "cidade", "uf", "pais", "resumo", "release", "logo", "capa", *URLS, "fontes", "notas_agente"}
 PROPOR = ["nome", "tags", "cidade", "uf", "pais", "resumo", "release", "logo", "capa", *URLS]
@@ -104,7 +108,7 @@ def validar(e):
     return d, avisos
 
 
-def gravar(arquivo, ensaio=False):
+def gravar(arquivo, ensaio=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     d, avisos = validar(e)
     eu()
@@ -117,14 +121,20 @@ def gravar(arquivo, ensaio=False):
         d["slug"], n = f"{base}-{n}", n + 1
     url = _url(d)
     falta = faltando(d, COMPLETO + (["uf"] if d["pais"] == "BR" else []))
+    fila = {}
+    if publicar:  # "Publicar direto": no ar já; logo/capa novos pela fila automática
+        d["status"] = "publicado"
+        fila = separar_imagens(d, ["logo", "capa"])
     if ensaio:
-        return {"ensaio": True, "url": url, "faltando": falta, "avisos": avisos, "registro": d}
+        return {"ensaio": True, "publicar": publicar, "url": url, "faltando": falta, "avisos": avisos, "imagens_na_fila": sorted(fila), "registro": d | fila}
     r = rest("POST", "negocios?select=tipo,slug,status", json=d, headers={"Prefer": "return=representation"}).json()[0]
-    return {"ok": True, "chave": f"{r['tipo']}/{r['slug']}", "url": url, "faltando": falta, "avisos": avisos,
-            "moderacao": f"{CMS}/moderacao/cadastro/negocios/{r['tipo']}/{r['slug']}"}
+    res = {"ok": True, "chave": f"{r['tipo']}/{r['slug']}", "url": url, "status": r["status"], "faltando": falta, "avisos": avisos}
+    if publicar:
+        return res | fila_imagens("negocios", f"{r['tipo']}/{r['slug']}", fila)
+    return res | {"moderacao": f"{CMS}/moderacao/cadastro/negocios/{r['tipo']}/{r['slug']}"}
 
 
-def propor(chave, arquivo, ensaio=False):
+def propor(chave, arquivo, ensaio=False, publicar=False):
     e = json.loads(sys.stdin.read() if arquivo == "-" else pathlib.Path(arquivo).read_text())
     tipo, _, slug = chave.partition("/")
     atual = rest("GET", f"negocios?select=*&tipo=eq.{tipo}&slug=eq.{slug}").json()
@@ -138,6 +148,9 @@ def propor(chave, arquivo, ensaio=False):
         raise Erro("Nada muda.")
     res = {"negocio": {"chave": chave, "nome": a["nome"], "site": _url(a)}, "mudancas": mud,
            "faltando": faltando(a | {k: d[k] for k in mud}, COMPLETO), "avisos": avisos}
+    if publicar:  # "Publicar direto": PATCH; logo/capa novos pela fila automática
+        return res | editar_direto("negocios", f"tipo=eq.{tipo}&slug=eq.{slug}", chave, {k: d[k] for k in mud}, ["logo", "capa"],
+                                   e.get("notas_agente"), ensaio)
     if ensaio:
         return res | {"ensaio": True}
     eu()
@@ -162,9 +175,9 @@ def main(args):
     elif cmd == "buscar" and pos:
         saida(buscar(" ".join(pos), valor("--instagram"), valor("--site")))
     elif cmd == "gravar" and pos:
-        saida(gravar(pos[0], "--ensaio" in resto))
+        saida(gravar(pos[0], "--ensaio" in resto, "--publicar" in resto))
     elif cmd == "propor" and len(pos) > 1:
-        saida(propor(pos[0], pos[1], "--ensaio" in resto))
+        saida(propor(pos[0], pos[1], "--ensaio" in resto, "--publicar" in resto))
     else:
         raise Erro("Uso: negocio.py buscar|gravar|propor|tags (veja --help)")
 

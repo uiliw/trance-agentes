@@ -2,11 +2,11 @@
 """Agente /trance, parte de regiões (/regiao/<slug>: regiões do Brasil, estados, continentes, países).
 
   regiao.py listar [--nivel uf|regiao|continente|pais] [--vazias]   # regiões com o que já têm (intro, SEO)
-  regiao.py propor <slug> <parcial.json|-> [--ensaio]                # proposta de texto de uma região (Moderação do CMS)
-  regiao.py lote <regioes.json|-> [--ensaio]                         # várias: {"<slug>": {parcial}, ...} ou [{"slug": ..., ...}]
+  regiao.py propor <slug> <parcial.json|-> [--ensaio] [--publicar]  # texto de uma região: proposta (Moderação) ou direto
+  regiao.py lote <regioes.json|-> [--ensaio] [--publicar]           # várias: {"<slug>": {parcial}, ...} ou [{"slug": ..., ...}]
 
-Região não tem status nem dono (está sempre no ar): o agente nunca grava direto, só propõe em `alteracoes`
-(tabela 'regioes'). As regiões são fixas (duda/supabase/schema.sql), menos país: admin cria em Cena › Novo país no CMS.
+Região não tem status nem dono (está sempre no ar): por padrão o agente propõe em `alteracoes` (tabela 'regioes');
+com --publicar ("Publicar direto", escolha do usuário) grava o texto na região e ele vai ao ar na hora. As regiões são fixas (duda/supabase/schema.sql), menos país: admin cria em Cena › Novo país no CMS.
 A página /regiao/<slug> só existe com 3 ou mais cadastros publicados (`tem_pagina`); o texto proposto antes fica guardado.
 Campos: intro (texto puro, parágrafos por linha em branco; ou HTML p/br/strong/em/a/ul/ol/li),
 seo_title (até 60), seo_description (até 158), fontes, notas_agente. Saída em JSON.
@@ -18,7 +18,7 @@ import sys
 
 import requests
 
-from evento import CMS, Erro, eu, faltando, paragrafos, rest, saida, tudo, uid
+from evento import CMS, Erro, editar_direto, eu, faltando, paragrafos, rest, saida, tudo, uid
 
 SITE = "https://www.trance.com.br/regiao/"
 PROPOR = ["intro", "seo_title", "seo_description"]
@@ -70,7 +70,7 @@ def listar(nivel="", vazias=False):
     return {"total": len(out), "regioes": out}
 
 
-def propor(slug, e, ensaio=False, pendentes=None):
+def propor(slug, e, ensaio=False, pendentes=None, publicar=False):
     atual = rest("GET", "regioes?select=*&slug=eq." + slug).json()
     if not atual:
         raise Erro(FIXAS.format(slug=slug))
@@ -82,13 +82,15 @@ def propor(slug, e, ensaio=False, pendentes=None):
     if pendentes is None:
         pendentes = {x["chave"] for x in rest("GET", f"alteracoes?select=chave&tabela=eq.regioes&status=eq.pendente&chave=eq.{slug}").json()}
     if slug in pendentes:
-        raise Erro(f"{slug}: já tem proposta pendente na Moderação (uma por região).")
+        raise Erro(f"{slug}: já tem proposta pendente na Moderação (uma por região): decida-a no CMS antes.")
     total, pagina = contagem(slug).get(slug, (0, False))
     res = {"regiao": {"slug": slug, "nome": a["nome"], "nivel": a["nivel"], "site": SITE + slug, "cadastros": total, "tem_pagina": pagina},
            "mudancas": mud, "faltando": faltando(a | {k: d[k] for k in mud}, PROPOR)}
     if not pagina:
         res["aviso"] = (f"{SITE}{slug} ainda não existe ({total} cadastro(s) publicado(s); a página aparece com 3). "
                         "O texto fica guardado e entra no ar quando a página existir.")
+    if publicar:  # "Publicar direto": grava na região (sempre no ar)
+        return res | editar_direto("regioes", "slug=eq." + slug, slug, {k: d[k] for k in mud}, [], "", ensaio)
     if ensaio:
         return res | {"ensaio": True}
     r = rest("POST", "alteracoes?select=id", headers={"Prefer": "return=representation"},
@@ -97,7 +99,7 @@ def propor(slug, e, ensaio=False, pendentes=None):
     return res | {"ok": True, "id": r["id"], "moderacao": f"{CMS}/moderacao/alteracao/{r['id']}"}
 
 
-def lote(dados, ensaio=False):
+def lote(dados, ensaio=False, publicar=False):
     itens = [x | {"slug": s} for s, x in dados.items()] if isinstance(dados, dict) else list(dados)
     eu()
     pend = {a["chave"] for a in tudo("alteracoes?select=chave&tabela=eq.regioes&status=eq.pendente")}
@@ -105,12 +107,14 @@ def lote(dados, ensaio=False):
     for x in itens:
         slug = str(x.get("slug") or "")
         try:
-            r = propor(slug, x, ensaio, pend)
+            r = propor(slug, x, ensaio, pend, publicar)
             ok.append({"slug": slug, **({"id": r["id"]} if "id" in r else {}), "campos": list(r["mudancas"])})
         except Erro as e:
             erros.append({"slug": slug, "erro": str(e)})
         except requests.HTTPError as e:
             erros.append({"slug": slug, "erro": f"{e.response.status_code}: {e.response.text[:200]}"})
+    if publicar:
+        return {"ensaio": ensaio, "publicar": True, "publicadas": len(ok), "erros": erros, "itens": ok}
     return {"ensaio": ensaio, "propostas": len(ok), "erros": erros, "itens": ok,
             "moderacao": f"{CMS}/moderacao?tabela=regioes&origem=agente"}
 
@@ -128,9 +132,9 @@ def main(args):
     elif cmd == "propor" and len(pos) > 1:
         if not ens:
             eu()
-        saida(propor(pos[0], _ler(pos[1]), ens))
+        saida(propor(pos[0], _ler(pos[1]), ens, publicar="--publicar" in resto))
     elif cmd == "lote" and pos:
-        saida(lote(_ler(pos[0]), ens))
+        saida(lote(_ler(pos[0]), ens, "--publicar" in resto))
     else:
         raise Erro("Uso: regiao.py listar|propor|lote (veja --help)")
 

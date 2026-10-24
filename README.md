@@ -1,14 +1,30 @@
 # Agente /trance
 
-O agente do Trance.com.br cadastra e atualiza **eventos, artistas, gravadoras, lojas, serviços e os textos das regiões**, liga eventos aos artistas e artistas às gravadoras, busca o que ainda falta no portal e revisa a base. Antes de gravar, sempre mostra um relatório com os dados como vão ficar e pergunta o que gravar. Tudo vai como sugestão para a Moderação do CMS, em seu nome: nada vai ao ar sem aprovação.
+O agente do Trance.com.br cadastra e atualiza **eventos, artistas, gravadoras, lojas, serviços e os textos das regiões**, liga eventos aos artistas e artistas às gravadoras, busca o que ainda falta no portal e revisa a base. Antes de gravar, sempre mostra um relatório com os dados como vão ficar e pergunta o que gravar e como: **publicar direto** no site ou **deixar na Moderação** do CMS. Tudo fica gravado em seu nome.
 
-Versão 1.9.3 · Mac ou Windows · Claude Desktop (aba Code) ou terminal · Python 3 · Conta do CMS com app autenticador
+Versão 2.1.0 · Mac ou Windows · Claude Desktop (aba Code) ou terminal · Python 3 · Conta do CMS com app autenticador
 
-> Saiu a versão **1.9.3** (15/10/2026). Atualize (último passo da instalação) e abra uma sessão nova. O que mudou está na aba Novidades.
+> Saiu a versão **2.1.0** (23/10/2026). Atualize (último passo da instalação) e abra uma sessão nova. O que mudou está na aba Novidades.
 
 ## Novidades
 
 O que entrou desde a versão 1.4.0. Para receber, atualize o plugin (passo a passo).
+
+### 2.1.0 — 23/10/2026 · crews
+
+- **Crews:** o agente cadastra coletivos e produtoras de festa (página `/crew/…` com apresentação, cidade, logo, capa, links, artistas e eventos), com o mesmo relatório e a mesma escolha entre publicar direto e deixar na Moderação. Publicando direto, logo e capa novos vão como proposta na Moderação.
+- **Buscar crews:** lista os nomes citados no campo "crew" dos perfis que ainda não têm página, sem gravadoras e agências, com quantos artistas citam cada um.
+- **Vínculos da crew na hora:** ligar e desligar artistas e eventos de uma crew vale na hora, sem Moderação. A crew aparece no perfil dos artistas e na página dos eventos.
+- **Crews e serviços no evento:** o cadastro do evento já pode trazer a crew que organiza e os serviços (som, infraestrutura, alimentação, tenda de cura…); evento que já está no site também ganha esses vínculos na hora.
+- **Revisar e inativar:** a revisão aponta crews sem artistas, sem eventos ou incompletas, e o agente também tira crews do site (arquivadas, com confirmação).
+
+### 2.0.0 — 23/10/2026 · publicar direto, vínculos, inativar
+
+- **Publicar direto ou deixar na Moderação:** antes de gravar um lote (eventos, artistas, gravadoras, lojas, serviços, sets ou textos de região), o agente pergunta uma vez se é para publicar direto no site ou deixar na Moderação como antes. Publicando direto, cadastro novo já entra no ar e cadastro publicado é editado na hora, sem proposta.
+- **Imagens de quem publica direto:** flyer, capa, logo, foto e galeria vão para uma fila automática que sobe tudo para o site em 1 ou 2 minutos, sem passar pela Moderação. Gravadora é a exceção: o logo novo vai como proposta na Moderação.
+- **Vínculos sempre na hora:** ligar e desligar artista de evento, e artista de gravadora, não passa mais pela Moderação, nem para tirar. Os vínculos continuam aparecendo no relatório antes de gravar.
+- **Inativar cadastro:** o agente tira do site perfis, eventos, gravadoras, lojas, serviços e sets (fica arquivado, nunca é apagado), sempre com a lista do que vai sair e sua confirmação antes. O motivo fica nas notas do agente. O autor pode editar e reenviar pela conta.trance.com.br (volta para a Moderação) e o CMS tem "Publicar de novo".
+- **Criadores de conteúdo / UGC:** nova categoria de serviço; o agente já cadastra criadores de conteúdo como serviço.
 
 ### 1.9.3 — 15/10/2026 · regiões
 
@@ -177,7 +193,7 @@ Na caixa de mensagem da aba Code, um comando por vez.
 /reload-plugins
 ```
 
-Ou abra uma sessão nova. Para conferir a versão: `/plugin` › aba **Installed** › `trance-eventos` (a atual é a **1.9.3**).
+Ou abra uma sessão nova. Para conferir a versão: `/plugin` › aba **Installed** › `trance-eventos` (a atual é a **2.1.0**).
 
 **Continuou na versão antiga?** Reinstale (o login no CMS continua valendo):
 
@@ -283,11 +299,11 @@ Escreva `/trance` e o pedido em português, do jeito que falaria. O agente enten
 
 1. **Pesquisa** nas fontes oficiais (site, ingresso, Instagram, SoundCloud, Spotify, Bandcamp, Resident Advisor, Goabase, Discogs) e confere o que já existe no portal, para não duplicar. Nada é gravado nesta etapa.
 2. **Relatório** com tudo como vai ficar: endereço final no site, datas, local, imagens (flyer, capa, logo), line-up separado em "com perfil", "a confirmar" e "novos", gravadoras novas, vínculos, fontes, o que ficou incerto e a linha "Faltando:".
-3. **Sua escolha**: uma pergunta com o que gravar (o evento, quais artistas e gravadoras novos, quais vínculos). Dá para pedir ajustes antes: "troca a capa", "o nome é X".
-4. **Gravação** como sugestão pendente (cadastro novo) ou proposta de alteração (cadastro que já está no site).
-5. **Relatório final** com o link de cada item na Moderação e o que não deu certo.
+3. **Sua escolha**: uma pergunta com o que gravar (o evento, quais artistas e gravadoras novos, quais vínculos) e outra, uma vez por lote, se é para **publicar direto** ou **deixar na Moderação**. Dá para pedir ajustes antes: "troca a capa", "o nome é X".
+4. **Gravação**: publicando direto, entra no ar na hora (imagens em 1 ou 2 minutos); deixando na Moderação, vira sugestão pendente (cadastro novo) ou proposta de alteração (cadastro que já está no site). Vínculos valem sempre na hora.
+5. **Relatório final** com o link de cada item (no site ou na Moderação) e o que não deu certo.
 
-Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fontes e as notas do agente; no evento aparece a lista de artistas vinculados e quais perfis ainda esperam aprovação (aprove os perfis, e as gravadoras novas, para o vínculo aparecer no site).
+O que ficou na Moderação: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fontes e as notas do agente; no evento aparece a lista de artistas vinculados e quais perfis ainda esperam aprovação (aprove os perfis, e as gravadoras novas, para o vínculo aparecer no site).
 
 ## O que dá para pedir
 
@@ -309,9 +325,9 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - Grava flyer, capa e logo; local no mapa; line-up ligado aos perfis do portal.
 - Oferece cadastrar os **artistas do line-up** que ainda não têm perfil (até 15 por vez) e já liga o evento a eles.
 - O endereço sai pelo tipo: `/festival/…`, `/festa/…`, `/feira-exposicao/…` ou `/curso-retiro/…`.
-- `1.8` Ligar artistas ao line-up vale na hora, sem Moderação; tirar artista continua como proposta.
+- `2.0` Ligar e tirar artistas do line-up vale na hora, sem Moderação.
 - Line-up ou horário que saiu depois numa sugestão ainda pendente: mande o print e peça para completar.
-- `1.6` **Evento já publicado** que mudou (data, flyer, local, ingresso, textos): vira proposta de alteração, com antes e depois.
+- `1.6` **Evento já publicado** que mudou (data, flyer, local, ingresso, textos): mostra antes e depois e, conforme a sua escolha, edita direto ou manda proposta para a Moderação.
 
 ### Artista
 
@@ -332,7 +348,7 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - `1.6` **Sets em perfil que já existe:** até 3 por vez, sem repetir os que já estão no portal.
 - `1.7` Gravadora citada que ainda não está no portal é pesquisada e cadastrada junto (veja Gravadora).
 - Procura os **próximos eventos** em que ele toca: os que já estão no portal (para vincular) e os que faltam (para cadastrar).
-- Perfil que já está no site vira **proposta de alteração**, com antes e depois, para aprovar na Moderação.
+- Perfil que já está no site: antes e depois no relatório; edita direto ou vira **proposta de alteração** na Moderação, como você escolher.
 
 ### Gravadora
 
@@ -346,9 +362,23 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 
 - Busca o selo no Discogs: apresentação, links (site, Instagram, SoundCloud, Bandcamp, Beatport), logo e catálogo.
 - Cruza o catálogo com o portal: artistas com perfil (para ligar ao selo) e sem perfil (para cadastrar).
-- O artista ligado ganha o link para a gravadora no perfil e aparece na página da gravadora.
+- O artista ligado ganha o link para a gravadora no perfil e aparece na página da gravadora. `2.0` Ligar e desligar vale na hora.
 - `1.7` **Selo novo junto com o artista:** o relatório traz "Gravadoras novas"; aprovando, a gravadora é gravada primeiro e o artista já sai ligado. Até a aprovação dela, o nome aparece no perfil como texto.
 - `1.7` Gravadora publicada sem logo, apresentação, país, estilos, descrição ou links ganha proposta com o que faltar.
+
+### Crew
+
+```
+/trance cadastre a crew Origens Gathering
+```
+
+```
+/trance buscar crews
+```
+
+- `2.1` Coletivo ou produtora que organiza festas e reúne artistas. Página `/crew/…` com apresentação, cidade, logo, capa, links, artistas e eventos.
+- Mostra os artistas que citam a crew no perfil e as edições dela já cadastradas, para ligar junto. Ligar e desligar artistas e eventos vale na hora.
+- Selo, agência ou booking não é crew: gravadora tem modo próprio, e o agente avisa quando o nome é o mesmo de uma gravadora.
 
 ### Loja ou serviço
 
@@ -359,6 +389,7 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - Monta a ficha com tipo, categorias (as mesmas do CMS), cidade, links, logo e capa. Endereço: `/loja/…` ou `/servico/…`.
 - `1.6` As categorias decidem em quais páginas o negócio aparece (/lojas/vestuario, /terapias-holisticas…); a primeira sai no cartão da lista, então a principal vem primeiro.
 - Só entra o que tem relação com a cena e a cultura psicodélica.
+- `2.0` Nova categoria de serviço: **Criadores de Conteúdo / UGC**.
 
 ### Região
 
@@ -371,7 +402,7 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 ```
 
 - `1.9` Apresentação da página (cena local, festivais marcantes, como chegar) e os textos do Google, para regiões do Brasil, estados, continentes e países.
-- Região está sempre no ar: o texto vai como proposta na Moderação, uma por região, e só muda o site quando aprovado.
+- Região está sempre no ar: publicando direto, o texto muda o site na hora; deixando na Moderação, vai como proposta, uma por região.
 - Mostra antes quais regiões estão sem texto e quais já têm proposta esperando.
 
 ### Buscar o que falta
@@ -395,6 +426,7 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - **Eventos:** regiões `brasil`, `america-latina`, `europa`, `asia-oceania`, `africa` ou `mundo`; período em dias ou meses.
 - **Artistas:** nomes dos line-ups dos próximos eventos que ainda não têm perfil.
 - **Gravadoras:** selos de psytrance no Discogs, ativos e do Brasil primeiro, em lotes de cerca de 30.
+- `2.1` **Crews:** nomes citados no campo "crew" dos perfis que ainda não têm página (sem gravadoras e agências).
 - O agente mostra uma lista numerada; responda com os números, "todos" ou "nenhum".
 
 ### Revisar a base
@@ -414,8 +446,23 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - Confere vínculos evento ↔ artista e artista ↔ gravadora, duplicatas, dados incompletos, links fora do ar, estilos e séries.
 - `1.6` Incompletos inclui perfis sem resumo e lojas e serviços sem categoria, logo, resumo ou cidade; links testam também Spotify, Bandcamp e YouTube.
 - `1.7` Gravadoras sem logo, apresentação, país, estilos, descrição do Google ou nenhum link.
+- `2.1` Crews sem artistas, sem eventos ou sem logo, apresentação ou cidade.
 - Só lê: mostra a contagem de cada problema com exemplos e corrige apenas o que você escolher.
-- Vínculos e grafias são aprovados em lote no próprio relatório; o resto vira proposta, item por item, na Moderação. Duplicata nunca é apagada sozinha.
+- Vínculos e grafias são aprovados em lote no próprio relatório e valem na hora; o resto é corrigido item por item, direto ou na Moderação. Duplicata nunca é apagada sozinha.
+
+### Inativar (tirar do site)
+
+```
+/trance inative o evento Pulsar Festival 2028: foi cancelado
+```
+
+```
+/trance tire do site o perfil duplicado do DJ Fulano
+```
+
+- `2.0` Perfis, eventos, gravadoras, lojas, serviços, sets `2.1` e crews. O cadastro fica arquivado: nunca é apagado.
+- Mostra antes o que vai sair do site (e, no perfil, quantos sets e eventos ligados ele tem) e só inativa depois da sua confirmação.
+- O motivo fica nas notas do agente. O autor pode editar e reenviar pela conta.trance.com.br (volta para a Moderação) e o CMS tem "Publicar de novo".
 
 ## Regras que o agente segue
 
@@ -424,7 +471,7 @@ Para aprovar: CMS › **Moderação**, filtro **Agente**. Cada item mostra as fo
 - **Fonte oficial primeiro**: Site, ingresso e perfil oficial; agregadores só confirmam. Cada dado guarda o link de onde veio.
 - **Texto próprio**: Resumo e apresentação em português, com palavras próprias, sem tom de anúncio.
 - **Sem dados pessoais**: Nada de telefone, e-mail pessoal ou endereço de casa.
-- **Nada no ar sem aprovação**: Cadastro novo entra pendente; mudança em cadastro publicado vira proposta. As imagens só vão para o site quando aprovadas.
+- **Você decide o que vai ao ar**: Antes de gravar, pergunta uma vez por lote: publicar direto ou deixar na Moderação (cadastro novo pendente, mudança como proposta). Nunca apaga, nunca dá destaque nem dono a cadastro, e só inativa com a sua confirmação.
 
 ## Se algo der errado
 
@@ -454,7 +501,7 @@ O cadastro já está no portal: peça para atualizar, e o agente faz uma propost
 
 **"Já há uma proposta em análise"**
 
-Só cabe uma proposta por cadastro de cada vez: aprove ou recuse a anterior na Moderação.
+Só cabe uma proposta por cadastro de cada vez: aprove ou recuse a anterior na Moderação, ou peça para publicar direto.
 
 **"gravadoras que não existem na base"**
 
